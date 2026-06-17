@@ -1,18 +1,78 @@
-import os
-from flask import Flask, render_template, request
-from bigquery_helper import get_documents
+"""dashboard.py
+Treasury & Commodity Counterparty Analytics – web dashboard with LLM chat.
 
-# Use the directory containing this script as the template folder.
-# This allows dashboard.html to be found in the same folder as dashboard.py.
+Endpoints:
+  GET  /                 – main dashboard
+  GET  /api/counterparties – JSON data for the table (supports ?search=&sector=)
+  GET  /api/stats        – summary KPIs as JSON
+  POST /api/chat         – Gemini-powered Q&A over counterparty data
+"""
+import os
+from flask import Flask, render_template, request, jsonify
+from bigquery_helper import get_counterparties, get_summary_stats, build_llm_context
+
 app = Flask(__name__, template_folder=os.path.dirname(os.path.abspath(__file__)))
 
-@app.route('/')
-def index():
-    tag_query = request.args.get('tag', '')
-    documents = get_documents(tag_filter=tag_query)
-    return render_template('dashboard.html', documents=documents, tag_query=tag_query)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
-if __name__ == '__main__':
-    # For local development
-    port = int(os.environ.get('PORT', 8081))
-    app.run(host='0.0.0.0', port=port)
+
+def _get_gemini_response(question: str, context: str) -> str:
+    """Call Gemini 1.5 Flash (free tier) with BQ context injected."""
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        prompt = (
+            "You are a treasury and commodity trading analyst assistant. "
+            "Answer the user's question using ONLY the data provided below. "
+            "Be concise, quantitative, and flag any credit or liquidity risks.\n\n"
+            f"DATA:\n{context}\n\n"
+            f"QUESTION: {question}"
+        )
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"LLM error: {e}"
+
+
+@app.route("/")
+def index():
+    return render_template("dashboard.html")
+
+
+@app.route("/api/counterparties")
+def api_counterparties():
+    search = request.args.get("search", "")
+    sector = request.args.get("sector", "")
+    rows   = get_counterparties(search=search or None, sector=sector or None)
+    # Serialise datetime objects to string
+    for r in rows:
+        if "upload_date" in r and hasattr(r["upload_date"], "isoformat"):
+            r["upload_date"] = r["upload_date"].isoformat()
+    return jsonify(rows)
+
+
+@app.route("/api/stats")
+def api_stats():
+    return jsonify(get_summary_stats())
+
+
+@app.route("/api/chat", methods=["POST"])
+def api_chat():
+    body     = request.get_json(force=True) or {}
+    question = body.get("question", "").strip()
+    company  = body.get("company", "").strip() or None
+
+    if not question:
+        return jsonify({"error": "No question provided"}), 400
+    if not GEMINI_API_KEY:
+        return jsonify({"error": "GEMINI_API_KEY not configured on the server"}), 503
+
+    context = build_llm_context(company_name=company)
+    answer  = _get_gemini_response(question, context)
+    return jsonify({"answer": answer})
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8081))
+    app.run(host="0.0.0.0", port=port, debug=True)

@@ -1,0 +1,11 @@
+company_name,country,sector,credit_rating,period_year,revenue_usd_m,ebitda_usd_m,net_income_usd_m,total_assets_usd_m,total_debt_usd_m,current_ratio
+Glencore PLC,Switzerland,Trading House,BBB,2024,238400,6120,1740,155000,28000,1.42
+Vitol Group,Netherlands,Trading House,BB+,2024,310000,4200,980,48000,18500,1.18
+Trafigura Group,Singapore,Trading House,BB,2024,244000,3800,760,62000,22000,1.05
+Shell PLC,United Kingdom,Oil & Gas,AA-,2024,316000,55000,19200,398000,51000,1.38
+TotalEnergies SE,France,Oil & Gas,A+,2024,218000,42000,15800,310000,44000,1.25
+BASF SE,Germany,Petrochemicals,A,2024,68900,7200,2100,77000,16000,1.62
+Bunge Global SA,United States,Agricultural Commodities,BBB-,2024,59300,2800,1100,35000,9500,1.33
+Louis Dreyfus,Netherlands,Agricultural Commodities,BB+,2024,55000,1900,620,24000,11000,1.09
+Anglo American,United Kingdom,Metals & Mining,BBB,2024,29800,8900,2400,71000,12500,1.71
+Gunvor Group,Cyprus,Trading House,B+,2024,114000,1200,380,18000,9800,0.98
