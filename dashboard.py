@@ -57,6 +57,42 @@ def api_stats():
     return jsonify(get_summary_stats())
 
 
+@app.route("/api/upload", methods=["POST"])
+def api_upload():
+    if "file" not in request.files:
+        return jsonify({"error": "No file in request"}), 400
+    file = request.files["file"]
+    if not file.filename:
+        return jsonify({"error": "Empty filename"}), 400
+
+    content = file.read()
+
+    # Optionally mirror to Cloud Storage if bucket is configured
+    bucket = os.getenv("BUCKET")
+    if bucket:
+        try:
+            from cloud_storage_helper import upload_blob
+            upload_blob(file.filename, content)
+        except Exception as e:
+            return jsonify({"error": f"GCS upload failed: {e}"}), 500
+
+    # Process inline — same pipeline as the Pub/Sub handler
+    try:
+        from ocr_simulator import simulate_ocr
+        from bigquery_helper import insert_counterparty
+        from datetime import datetime, timezone
+
+        records = simulate_ocr(content, filename=file.filename)
+        for record in records:
+            record["document_name"] = file.filename
+            record["upload_date"] = datetime.now(timezone.utc).isoformat()
+            insert_counterparty(record)
+    except Exception as e:
+        return jsonify({"error": f"Processing failed: {e}"}), 500
+
+    return jsonify({"ingested": len(records), "filename": file.filename})
+
+
 @app.route("/api/chat", methods=["POST"])
 def api_chat():
     body     = request.get_json(force=True) or {}

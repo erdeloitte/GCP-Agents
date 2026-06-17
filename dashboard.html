@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Counterparty Intelligence | Treasury & Commodity</title>
+  <title>Counterparty Intelligence | Deloitte AI Hub</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <style>
@@ -542,10 +542,10 @@
 <!-- TOP BAR -->
 <div class="topbar">
   <div class="topbar-brand">
-    <div class="brand-mark">ARAMCO</div>
+    <div class="brand-mark">DELOITTE</div>
     <div>
       <div class="brand-name">Treasury &amp; Commodity Intelligence</div>
-      <div class="brand-sub">Counterparty Risk Analytics</div>
+      <div class="brand-sub">Deloitte AI Hub · Counterparty Risk Analytics</div>
     </div>
   </div>
   <div class="topbar-right">
@@ -661,9 +661,9 @@
       <div class="upload-drop" id="upload-zone" onclick="document.getElementById('file-input').click()">
         <div class="upload-drop-label">
           <strong>Click to select file</strong> or drag and drop<br/>
-          Financial statement · CSV format
+          Financial statement · XLSX or CSV
         </div>
-        <input type="file" id="file-input" accept=".csv,.txt" />
+        <input type="file" id="file-input" accept=".xlsx,.csv,.txt" />
       </div>
       <div class="upload-status" id="upload-status"></div>
       <details>
@@ -718,7 +718,7 @@ total_debt_usd_m, current_ratio</pre>
 
 <!-- STATUS BAR -->
 <div class="statusbar">
-  <span>Treasury &amp; Commodity Intelligence Platform &nbsp;|&nbsp; Saudi Aramco &nbsp;|&nbsp; Google Cloud · BigQuery · Gemini AI</span>
+  <span>Treasury &amp; Commodity Intelligence Platform &nbsp;|&nbsp; Deloitte AI Hub &nbsp;|&nbsp; Google Cloud · BigQuery · Gemini AI</span>
   <span id="sb-count">—</span>
 </div>
 
@@ -846,7 +846,7 @@ function handleFile(file) {
   fetch('/api/upload', { method: 'POST', body: fd })
     .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
     .then(() => { setSt(`${file.name} — pipeline triggered. Refreshing in 3s.`, 'ok'); setTimeout(() => { loadCounterparties(); loadStats(); }, 3000); })
-    .catch(() => setSt('Upload not wired in this demo. Use: gsutil cp file.csv gs://treasury_comm_agent/', 'err'));
+    .catch(err => setSt(`Upload failed: ${err}`, 'err'));
 }
 
 function setSt(msg, cls) { stEl.textContent = msg; stEl.className = 'upload-status s-' + cls; }

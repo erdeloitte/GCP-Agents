@@ -9,6 +9,12 @@ import csv
 import io
 import re
 
+try:
+    import pandas as pd
+    _PANDAS = True
+except ImportError:
+    _PANDAS = False
+
 
 EXPECTED_COLUMNS = {
     "company_name", "country", "sector", "credit_rating", "period_year",
@@ -17,22 +23,55 @@ EXPECTED_COLUMNS = {
 }
 
 
-def simulate_ocr(content: bytes) -> list[dict]:
+def simulate_ocr(content: bytes, filename: str = "") -> list[dict]:
     """Parse a financial document into a list of counterparty records.
 
-    Tries CSV parsing first; falls back to plain-text heuristic extraction.
+    Tries XLSX first (if filename ends in .xlsx), then CSV, then plain-text
+    heuristic extraction.
 
     Args:
-        content: Raw bytes downloaded from Cloud Storage.
+        content:  Raw bytes downloaded from Cloud Storage.
+        filename: Original filename — used to choose the parser.
 
     Returns:
         List of dicts matching the counterparties BigQuery schema.
     """
+    if filename.lower().endswith(".xlsx"):
+        records = _try_xlsx(content)
+        if records:
+            return records
+
     text = content.decode(errors="ignore").strip()
     records = _try_csv(text)
     if records:
         return records
     return _heuristic_extract(text)
+
+
+def _try_xlsx(content: bytes) -> list[dict]:
+    """Parse an XLSX workbook into counterparty records using pandas.
+
+    Iterates all sheets; uses the first sheet whose columns overlap with
+    EXPECTED_COLUMNS by at least 4 fields.  Rows with no company_name are skipped.
+    """
+    if not _PANDAS:
+        return []
+    try:
+        xl = pd.ExcelFile(io.BytesIO(content))
+        for sheet in xl.sheet_names:
+            # Try reading with header on row 0; if columns don't match, probe row 1
+            for header_row in (0, 1):
+                df = pd.read_excel(xl, sheet_name=sheet, header=header_row)
+                df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
+                if len(set(df.columns) & EXPECTED_COLUMNS) >= 4:
+                    df = df.dropna(how="all")
+                    records = [_normalise_row(row.to_dict()) for _, row in df.iterrows()
+                               if str(row.get("company_name", "")).strip() not in ("", "nan")]
+                    if records:
+                        return records
+    except Exception:
+        pass
+    return []
 
 
 def _try_csv(text: str) -> list[dict]:
