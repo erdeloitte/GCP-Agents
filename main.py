@@ -1,33 +1,25 @@
 import os
 import json
 import base64
-from datetime import datetime
+from datetime import datetime, timezone
 from flask import Flask, request
-from google.cloud import storage, bigquery
+
+# Use project-specific helper modules for modularity and deduplication
+from ocr_simulator import simulate_ocr
+from cloud_storage_helper import download_blob
+from bigquery_helper import insert_metadata
 
 app = Flask(__name__)
-
-BUCKET_NAME = os.getenv('BUCKET')
-BQ_DATASET = os.getenv('BQ_DATASET')
-BQ_TABLE = f"{BQ_DATASET}.documents"
-
-storage_client = storage.Client()
-bq_client = bigquery.Client()
-
-def simulate_ocr(content: bytes) -> str:
-    """Placeholder OCR – simply decode bytes to string.
-    Replace with real OCR (e.g., pytesseract) for production.
-    """
-    return content.decode(errors='ignore')
 
 def extract_metadata(filename: str, text: str) -> dict:
     words = text.split()
     word_count = len(words)
-    tags = list({w.lower() for w in words if len(w) > 6})
+    # Deduplicate tags and join as a string to match BigQuery STRING schema
+    tags_list = list({w.lower() for w in words if len(w) > 6})
     return {
         "filename": filename,
-        "upload_date": datetime.utcnow().isoformat(),
-        "tags": tags,
+        "upload_date": datetime.now(timezone.utc).isoformat(),
+        "tags": ",".join(tags_list),
         "word_count": word_count,
     }
 
@@ -49,14 +41,15 @@ def handler():
     filename = obj_info.get('name')
     if not filename:
         return 'No object name in message', 400
-    bucket = storage_client.bucket(BUCKET_NAME)
-    blob = bucket.blob(filename)
-    content = blob.download_as_bytes()
-    text = simulate_ocr(content)
-    metadata = extract_metadata(filename, text)
-    errors = bq_client.insert_rows_json(BQ_TABLE, [metadata])
-    if errors:
-        return f'BigQuery insert errors: {errors}', 500
+
+    try:
+        content = download_blob(filename)
+        text = simulate_ocr(content)
+        metadata = extract_metadata(filename, text)
+        insert_metadata(metadata)
+    except Exception as e:
+        return f'Processing error: {e}', 500
+
     return '', 204
 
 if __name__ == '__main__':

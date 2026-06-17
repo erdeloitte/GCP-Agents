@@ -19,7 +19,7 @@ A serverless, event-driven document processing pipeline on Google Cloud Platform
 | Processor | Cloud Run (Python) | Simulated OCR + metadata extraction |
 | Storage | BigQuery | Stores extracted metadata for analytics |
 
-**Region:** `europe-west1`
+**Region:** `europe-west4`
 
 ---
 
@@ -43,13 +43,14 @@ google-cloud-serverless-app/
 
 ## Prerequisites
 
-1. A Google Cloud project with **billing enabled**.
+1. A Google Cloud project with **billing enabled** and `gcloud` configured: `gcloud config set project YOUR_PROJECT_ID`.
 2. The **Google Cloud SDK** (`gcloud`, `gsutil`, `bq`) installed and authenticated, or use **Google Cloud Shell** (https://shell.cloud.google.com).
 3. The following APIs enabled on your project:
-   - Cloud Storage
+   - Storage
    - Pub/Sub
    - Cloud Run
    - BigQuery
+   - Cloud Build
 
 Enable them in one command:
 
@@ -58,7 +59,8 @@ gcloud services enable \
   storage.googleapis.com \
   pubsub.googleapis.com \
   run.googleapis.com \
-  bigquery.googleapis.com
+  bigquery.googleapis.com \
+  cloudbuild.googleapis.com
 ```
 
 ---
@@ -68,10 +70,10 @@ gcloud services enable \
 ### 1. Set Environment Variables
 
 ```bash
-export PROJECT_ID=236909908642       # Your GCP project ID
-export REGION=europe-west1
+export PROJECT_ID=$(gcloud config get-value project)
+export REGION=europe-west4
 export SERVICE_NAME=doc-processor
-export BUCKET=doc-ingest-202607      # Choose a globally unique name
+export BUCKET=treasury_comm_agent
 export BQ_DATASET=doc_metadata
 ```
 
@@ -79,14 +81,14 @@ export BQ_DATASET=doc_metadata
 
 ```bash
 # Cloud Storage bucket
-gcloud storage buckets create gs://${BUCKET} --location=${REGION}
+gcloud storage buckets create gs://${BUCKET:?Please run 'export BUCKET=your-unique-name' first} --location=${REGION}
 
 # Pub/Sub topic
 gcloud pubsub topics create doc-ingest-topic
 
 # BigQuery dataset and table
-bq mk ${BQ_DATASET}
-bq mk -t ${BQ_DATASET}.documents \
+bq --project_id=${PROJECT_ID} mk --location=${REGION} ${BQ_DATASET}
+bq --project_id=${PROJECT_ID} mk -t ${BQ_DATASET}.documents \
     filename:STRING,upload_date:TIMESTAMP,tags:STRING,word_count:INT64
 ```
 

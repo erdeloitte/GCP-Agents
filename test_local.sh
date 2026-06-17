@@ -11,7 +11,7 @@
 set -euo pipefail
 
 # ── Set required environment variables ──────────────────────────────
-export BUCKET="${BUCKET:-doc-ingest-202607}"
+export BUCKET="${BUCKET:-treasury_comm_agent}"
 export BQ_DATASET="${BQ_DATASET:-doc_metadata}"
 export PORT="${PORT:-8080}"
 

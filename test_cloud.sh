@@ -9,10 +9,15 @@
 #
 # Required environment variables (export them before running):
 #   PROJECT_ID   – GCP project number or ID  (e.g. 236909908642)
-#   BUCKET       – Cloud Storage bucket name  (e.g. doc-ingest-202607)
+#   BUCKET       – Cloud Storage bucket name  (e.g. treasury_comm_agent)
 #   BQ_DATASET   – BigQuery dataset name      (e.g. doc_metadata)
 
 set -euo pipefail
+
+# ── Set defaults from configuration ─────────────────────────────────
+export PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project)}"
+export BUCKET="${BUCKET:-treasury_comm_agent}"
+export BQ_DATASET="${BQ_DATASET:-doc_metadata}"
 
 # ── Validate required env vars ──────────────────────────────────────
 for var in PROJECT_ID BUCKET BQ_DATASET; do
@@ -55,7 +60,7 @@ echo ""
 echo "=============================================="
 echo " Querying BigQuery for results"
 echo "=============================================="
-bq query --use_legacy_sql=false \
+bq --project_id "${PROJECT_ID}" query --use_legacy_sql=false \
   "SELECT filename, upload_date, tags, word_count
    FROM \`${PROJECT_ID}.${BQ_DATASET}.documents\`
    WHERE filename = '${TEST_BLOB}'
