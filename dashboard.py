@@ -59,6 +59,9 @@ def api_stats():
 
 @app.route("/api/upload", methods=["POST"])
 def api_upload():
+    from ocr_simulator import simulate_ocr
+    from datetime import datetime, timezone
+
     if "file" not in request.files:
         return jsonify({"error": "No file in request"}), 400
     file = request.files["file"]
@@ -67,30 +70,41 @@ def api_upload():
 
     content = file.read()
 
-    # Optionally mirror to Cloud Storage if bucket is configured
-    bucket = os.getenv("BUCKET")
-    if bucket:
+    # Step 1 — parse the file
+    try:
+        records = simulate_ocr(content, filename=file.filename)
+    except Exception as e:
+        return jsonify({"error": f"Could not parse file: {e}"}), 422
+
+    if not records:
+        return jsonify({"error": "No records extracted. Check the file has the required columns."}), 422
+
+    now = datetime.now(timezone.utc).isoformat()
+    for r in records:
+        r["document_name"] = file.filename
+        r["upload_date"] = now
+
+    # Step 2 — insert into BigQuery (optional; skipped if credentials not configured)
+    bq_warning = None
+    try:
+        from bigquery_helper import insert_counterparty
+        for r in records:
+            insert_counterparty(r)
+    except Exception as e:
+        bq_warning = str(e)
+
+    # Step 3 — optionally mirror to GCS
+    if os.getenv("BUCKET"):
         try:
             from cloud_storage_helper import upload_blob
             upload_blob(file.filename, content)
-        except Exception as e:
-            return jsonify({"error": f"GCS upload failed: {e}"}), 500
+        except Exception:
+            pass  # non-fatal
 
-    # Process inline — same pipeline as the Pub/Sub handler
-    try:
-        from ocr_simulator import simulate_ocr
-        from bigquery_helper import insert_counterparty
-        from datetime import datetime, timezone
-
-        records = simulate_ocr(content, filename=file.filename)
-        for record in records:
-            record["document_name"] = file.filename
-            record["upload_date"] = datetime.now(timezone.utc).isoformat()
-            insert_counterparty(record)
-    except Exception as e:
-        return jsonify({"error": f"Processing failed: {e}"}), 500
-
-    return jsonify({"ingested": len(records), "filename": file.filename})
+    resp = {"ingested": len(records), "filename": file.filename, "records": records}
+    if bq_warning:
+        resp["warning"] = f"Parsed OK but BigQuery insert failed: {bq_warning}"
+    return jsonify(resp)
 
 
 @app.route("/api/chat", methods=["POST"])

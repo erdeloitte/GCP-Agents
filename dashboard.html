@@ -839,14 +839,32 @@ zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
 zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('drag-over'); handleFile(e.dataTransfer.files[0]); });
 finput.addEventListener('change', () => handleFile(finput.files[0]));
 
-function handleFile(file) {
+async function handleFile(file) {
   if (!file) return;
   setSt(`Uploading ${file.name}…`, 'info');
-  const fd = new FormData(); fd.append('file', file);
-  fetch('/api/upload', { method: 'POST', body: fd })
-    .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
-    .then(() => { setSt(`${file.name} — pipeline triggered. Refreshing in 3s.`, 'ok'); setTimeout(() => { loadCounterparties(); loadStats(); }, 3000); })
-    .catch(err => setSt(`Upload failed: ${err}`, 'err'));
+  try {
+    const fd = new FormData(); fd.append('file', file);
+    const r   = await fetch('/api/upload', { method: 'POST', body: fd });
+    const d   = await r.json();
+    if (!r.ok) {
+      setSt(`Upload failed: ${d.error || r.statusText}`, 'err');
+      return;
+    }
+    if (d.warning) {
+      setSt(`Parsed ${d.ingested} record(s). Note: ${d.warning}`, 'err');
+    } else {
+      setSt(`${d.ingested} record(s) ingested from ${file.name}.`, 'ok');
+    }
+    // Show parsed records immediately without waiting for BQ refresh
+    if (d.records && d.records.length) {
+      allRows = d.records.map(r => ({ ...r, upload_date: r.upload_date || '' }));
+      renderTable(allRows);
+      populateCompanyDrop(allRows);
+    }
+    setTimeout(() => { loadCounterparties(); loadStats(); }, 2000);
+  } catch (err) {
+    setSt(`Upload failed: ${err}`, 'err');
+  }
 }
 
 function setSt(msg, cls) { stEl.textContent = msg; stEl.className = 'upload-status s-' + cls; }
