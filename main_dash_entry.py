@@ -18,7 +18,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 
 def _get_gemini_response(question: str, context: str) -> str:
-    """Call Gemini 1.5 Flash (free tier) with BQ context injected."""
+    """Call Gemini 3.5 Flash (free tier) with BQ context injected."""
     try:
         client = genai.Client(api_key=GEMINI_API_KEY)
         prompt = (
@@ -28,7 +28,7 @@ def _get_gemini_response(question: str, context: str) -> str:
             f"DATA:\n{context}\n\n"
             f"QUESTION: {question}"
         )
-        response = client.models.generate_content(model="gemini-1.5-flash", contents=prompt)
+        response = client.models.generate_content(model="gemini-3.5-flash", contents=prompt)
         return response.text
     except Exception as e:
         return f"LLM error: {e}"

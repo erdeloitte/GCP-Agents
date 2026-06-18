@@ -12,14 +12,14 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 
 def call_gemini(prompt: str, temperature: float = 0.3) -> str:
-    """Call Gemini 1.5 Flash and return the text response."""
+    """Call Gemini 3.5 Flash and return the text response."""
     if not GEMINI_API_KEY:
         return "ERROR: GEMINI_API_KEY not set."
     try:
         import google.generativeai as genai
         genai.configure(api_key=GEMINI_API_KEY)
         model = genai.GenerativeModel(
-            "gemini-1.5-flash",
+            "gemini-3.5-flash",
             generation_config={"temperature": temperature, "max_output_tokens": 1024},
         )
         return model.generate_content(prompt).text.strip()

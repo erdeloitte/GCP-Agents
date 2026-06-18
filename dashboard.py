@@ -42,7 +42,7 @@ def _gemini(prompt: str, temperature: float = 0.3) -> str:
         from google import genai
         client = genai.Client(api_key=GEMINI_API_KEY)
         response = client.models.generate_content(
-            model="gemini-1.5-flash",
+            model="gemini-3.5-flash",
             contents=prompt,
             config={"temperature": temperature, "max_output_tokens": 1024},
         )
