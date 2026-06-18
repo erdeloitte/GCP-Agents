@@ -30,10 +30,9 @@ def call_gemini(prompt: str, temperature: float = 0.3) -> str:
 def save_memo(record: dict) -> None:
     """Persist an agent memo to BigQuery. Non-fatal if BQ is unavailable."""
     try:
-        from bigquery_helper import get_bq_client, DATASET
+        from bigquery_helper import get_bq_client, _memo_table
         client = get_bq_client()
-        table  = f"{DATASET}.agent_memos"
-        client.insert_rows_json(table, [record])
+        client.insert_rows_json(_memo_table(), [record])
     except Exception:
         pass
 

@@ -4,16 +4,19 @@ Utility functions for interacting with Google Cloud Storage.
 import os
 from google.cloud import storage
 
-# The bucket name is passed via environment variable `BUCKET`
-BUCKET_NAME = os.getenv('BUCKET')
+_storage_client = None
 
-_storage_client = storage.Client()
+def _get_client():
+    global _storage_client
+    if _storage_client is None:
+        _storage_client = storage.Client()
+    return _storage_client
 
 def get_bucket():
-    """Return a Bucket object for the configured bucket name."""
-    if not BUCKET_NAME:
+    bucket_name = os.getenv('BUCKET')
+    if not bucket_name:
         raise RuntimeError('BUCKET environment variable not set')
-    return _storage_client.bucket(BUCKET_NAME)
+    return _get_client().bucket(bucket_name)
 
 def upload_blob(blob_name: str, data: bytes):
     """Upload raw bytes to the bucket under `blob_name`."""

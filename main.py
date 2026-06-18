@@ -8,6 +8,9 @@ Flow:
         → parse financials → store in BigQuery
 """
 import os
+from dotenv import load_dotenv
+load_dotenv()
+
 import json
 import base64
 from datetime import datetime, timezone

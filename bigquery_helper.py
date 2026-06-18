@@ -8,11 +8,20 @@ Tables:
 import os
 from google.cloud import bigquery
 
-DATASET    = os.getenv("BQ_DATASET", "treasury_analytics")
-CP_TABLE   = f"{DATASET}.counterparties"
-MEMO_TABLE = f"{DATASET}.agent_memos"
-
 _client = None
+
+
+def _dataset() -> str:
+    return os.getenv("BQ_DATASET", "treasury_analytics")
+
+def _cp_table() -> str:
+    return f"{_dataset()}.counterparties"
+
+def _memo_table() -> str:
+    return f"{_dataset()}.agent_memos"
+
+# Keep DATASET as a convenience alias (read lazily via property-like helper)
+DATASET = property(_dataset)
 
 
 def get_bq_client() -> bigquery.Client:
@@ -27,7 +36,7 @@ def get_bq_client() -> bigquery.Client:
 def insert_counterparty(record: dict) -> None:
     """Stream a single counterparty financial record into BigQuery."""
     client = get_bq_client()
-    errors = client.insert_rows_json(CP_TABLE, [record])
+    errors = client.insert_rows_json(_cp_table(), [record])
     if errors:
         raise RuntimeError(f"BigQuery insert errors: {errors}")
 
@@ -35,7 +44,7 @@ def insert_counterparty(record: dict) -> None:
 def get_counterparties(search: str = None, sector: str = None) -> list[dict]:
     """Fetch counterparty records, optionally filtered by name or sector."""
     client = get_bq_client()
-    query  = f"SELECT * FROM `{CP_TABLE}`"
+    query  = f"SELECT * FROM `{_cp_table()}`"
     params, conditions = [], []
 
     if search:
@@ -57,7 +66,7 @@ def get_counterparty_detail(counterparty_name: str) -> dict | None:
     """Return the most recent financial record for a specific counterparty."""
     client = get_bq_client()
     query  = f"""
-        SELECT * FROM `{CP_TABLE}`
+        SELECT * FROM `{_cp_table()}`
         WHERE LOWER(company_name) = LOWER(@name)
         ORDER BY upload_date DESC
         LIMIT 1
@@ -77,7 +86,7 @@ def get_summary_stats() -> dict:
             ROUND(AVG(debt_to_equity), 2)       AS avg_debt_to_equity,
             ROUND(AVG(current_ratio), 2)        AS avg_current_ratio,
             ROUND(SUM(revenue_usd_m), 1)        AS total_revenue_usd_m
-        FROM `{CP_TABLE}`
+        FROM `{_cp_table()}`
     """
     rows = list(client.query(query))
     return dict(rows[0]) if rows else {}
@@ -105,7 +114,7 @@ def build_llm_context(company_name: str = None) -> str:
 def save_memo(record: dict) -> None:
     """Persist an agent memo to the agent_memos table."""
     client = get_bq_client()
-    errors = client.insert_rows_json(MEMO_TABLE, [record])
+    errors = client.insert_rows_json(_memo_table(), [record])
     if errors:
         raise RuntimeError(f"BigQuery memo insert errors: {errors}")
 
@@ -113,7 +122,7 @@ def save_memo(record: dict) -> None:
 def get_memos(counterparty_name: str = None, agent_type: str = None) -> list[dict]:
     """Retrieve stored agent memos, optionally filtered."""
     client = get_bq_client()
-    query  = f"SELECT * FROM `{MEMO_TABLE}`"
+    query  = f"SELECT * FROM `{_memo_table()}`"
     params, conditions = [], []
 
     if counterparty_name:
