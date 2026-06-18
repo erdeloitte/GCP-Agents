@@ -25,7 +25,7 @@ EXPECTED_COLUMNS = {
 # Aliases: any of these header strings map to the canonical key
 _ALIASES = {
     "company_name":      ["company", "name", "company name", "counterparty", "entity"],
-    "country":           ["country", "nation", "jurisdiction"],
+    "country":           ["country", "nation", "jurisdiction", "country_sector", "country_and_sector"],
     "sector":            ["sector", "industry", "segment"],
     "credit_rating":     ["credit_rating", "rating", "credit rating", "s&p", "moody's"],
     "period_year":       ["period_year", "year", "fy", "fiscal year", "period"],
@@ -144,7 +144,11 @@ def _remap_row(row: dict) -> dict:
 
 
 def _normalise_key(s: str) -> str:
-    return s.strip().lower().replace(" ", "_").replace("-", "_")
+    """Lowercases, removes punctuation, and replaces spaces with underscores."""
+    s = s.strip().lower()
+    for char in ",/\\()":
+        s = s.replace(char, " ")
+    return s.replace(" ", "_").replace("-", "_").replace("__", "_").strip("_")
 
 
 # ── Row normalisation ─────────────────────────────────────────────────────────

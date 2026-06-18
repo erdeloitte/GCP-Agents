@@ -1,5 +1,5 @@
 Flask
-google-generativeai
+google-genai
 google-cloud-bigquery
 google-cloud-storage
 python-dotenv
