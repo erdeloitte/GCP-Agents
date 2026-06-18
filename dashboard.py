@@ -146,13 +146,36 @@ def api_chat():
     if not GEMINI_API_KEY:
         return jsonify({"error": "GEMINI_API_KEY not configured"}), 503
 
-    context = build_llm_context(company_name=company)
-    prompt  = (
-        "You are a treasury and commodity trading analyst assistant. "
-        "Answer using ONLY the data below. Be concise and flag risks.\n\n"
-        f"DATA:\n{context}\n\nQUESTION: {question}"
+    # Build context from BQ
+    bq_context = build_llm_context(company_name=company)
+
+    # Try to fetch web data (Yahoo Finance, market news) for the company
+    web_context = ""
+    if company:
+        web_context = _fetch_market_data(company)
+
+    # Combine all context
+    full_context = f"{bq_context}\n\n"
+    if web_context:
+        full_context += f"MARKET DATA (from public sources):\n{web_context}\n\n"
+
+    prompt = (
+        "You are a treasury and commodity trading analyst with access to company financial data "
+        "and live market information. Answer the user's question using the data provided. "
+        "Be specific, cite figures when relevant, and flag any risks or concerns.\n\n"
+        f"{full_context}"
+        f"QUESTION: {question}"
     )
     return jsonify({"answer": _gemini(prompt)})
+
+
+def _fetch_market_data(company_name: str) -> str:
+    """Fetch live market data from public sources for a company."""
+    try:
+        from market_data_helper import build_market_context
+        return build_market_context(company_name)
+    except Exception:
+        return ""
 
 
 # ── Agent routes ──────────────────────────────────────────────────────────────

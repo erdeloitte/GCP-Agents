@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Treasury & Commodity Intelligence | Deloitte AI Hub</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Aptos:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>@import url('https://fonts.googleapis.com/css2?family=Aptos:wght@400;500;600;700&display=swap');</style>
   <style>
     :root {
       --black:       #000000;
@@ -25,7 +26,7 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; }
     body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-family: 'Aptos', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
       background: var(--white);
       color: var(--text);
       line-height: 1.6;
@@ -528,9 +529,9 @@
 <div class="header">
   <div class="header-inner">
     <div class="header-title">Treasury & Commodity Intelligence</div>
-    <div class="header-sub">Deloitte AI Hub · Counterparty Risk Assessment</div>
+    <div class="header-sub">Deloitte · Counterparty Risk Assessment Platform</div>
     <div class="header-meta">
-      <span>Powered by Google Cloud, BigQuery & Gemini</span>
+      <span>Powered by Google Cloud & BigQuery with Market Data Integration</span>
       <span id="hdr-clock">—</span>
     </div>
   </div>
@@ -544,11 +545,11 @@
 
     <!-- Hero -->
     <div class="hero">
-      <h2>AI-Powered Counterparty Assessment</h2>
+      <h2>Counterparty Risk Assessment</h2>
       <p>
-        Run specialized LNG trading risk agents to evaluate counterparties across market exposure,
+        Run specialized LNG trading risk assessments to evaluate counterparties across market exposure,
         credit quality, and settlement liquidity. Upload financial statements, select a counterparty,
-        and get instant AI-driven memos and exposure recommendations.
+        and receive data-driven risk memos and exposure recommendations.
       </p>
     </div>
 
@@ -606,7 +607,6 @@
     <div class="card">
       <div class="card-title">Onboard Counterparty</div>
       <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
-        <div class="upload-icon">📊</div>
         <div class="upload-label">
           <strong>Click to upload</strong> financial statement<br/>
           CSV or XLSX format
@@ -625,11 +625,11 @@ total_debt_usd_m, current_ratio</pre>
 
     <!-- Chat Card -->
     <div class="card">
-      <div class="card-title">AI Analyst Chat</div>
+      <div class="card-title">Market Data Assistant</div>
       <div class="chat-container">
         <div class="chat-messages" id="chat-messages">
           <div class="chat-msg ai">
-            <div class="chat-bubble">Connected to live database. Ask about credit, leverage, sector risk, or portfolio analysis.</div>
+            <div class="chat-bubble">Connected to live database and market data. Ask about credit analysis, leverage ratios, sector trends, or portfolio exposures.</div>
           </div>
         </div>
         <div class="chat-input-row">
@@ -683,7 +683,7 @@ total_debt_usd_m, current_ratio</pre>
 
 <!-- Footer -->
 <footer>
-  Deloitte AI Hub · Treasury & Commodity Intelligence Platform · Powered by Google Cloud, BigQuery & Gemini 1.5 Flash
+  Deloitte · Treasury & Commodity Intelligence Platform · Powered by Google Cloud & BigQuery
 </footer>
 
 <script>
