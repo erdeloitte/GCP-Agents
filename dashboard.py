@@ -15,10 +15,13 @@ Endpoints:
 """
 import os
 from flask import Flask, render_template, request, jsonify
+from dotenv import load_dotenv
 from bigquery_helper import (
     get_counterparties, get_summary_stats, build_llm_context,
     get_counterparty_detail, get_memos,
 )
+
+load_dotenv()
 
 app = Flask(__name__, template_folder=os.path.dirname(os.path.abspath(__file__)))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
