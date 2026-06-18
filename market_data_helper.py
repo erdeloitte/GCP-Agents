@@ -2,7 +2,6 @@
 Fetch live market data from public sources to enrich chat context.
 
 Supported sources:
-  - Yahoo Finance (requires API key)
   - SEC EDGAR (free, no key)
   - Alpha Vantage (free tier available)
   - Public commodity exchanges
@@ -11,40 +10,37 @@ import os
 import urllib.request
 import urllib.parse
 import json
+import re
 
-
-YAHOO_API_KEY = os.getenv("YAHOO_API_KEY", "")
-
-
-def fetch_company_quote(symbol: str) -> dict | None:
-    """Fetch current stock quote and basic info from Yahoo Finance.
+def fetch_company_quote(ticker: str) -> dict | None:
+    """Fetch current stock quote from Google Finance by parsing the public page.
 
     Args:
-        symbol: Stock ticker (e.g., "GLENX" or company name to look up)
+        ticker: Stock ticker with exchange (e.g., "SHEL:NYSE" or "BP:LON")
 
     Returns:
-        Dict with price, change, market cap, or None if unavailable.
+        Dict with price, currency, or None if unavailable.
     """
-    if not YAHOO_API_KEY:
-        return None
-
     try:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-        req = urllib.request.Request(url, headers={"User-Agent": "Python"})
+        # Use Google Finance public URL
+        url = f"https://www.google.com/finance/quote/{ticker}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=5) as response:
-            data = json.loads(response.read().decode())
-            if data.get("chart", {}).get("result"):
-                result = data["chart"]["result"][0]
-                quote = result.get("meta", {})
+            html = response.read().decode()
+            
+            # Google Finance uses data-last-price and data-currency-code for real-time price blocks
+            price_match = re.search(r'data-last-price="([\d,.]+)"', html)
+            curr_match  = re.search(r'data-currency-code="(\w+)"', html)
+            
+            if price_match:
                 return {
-                    "symbol": quote.get("symbol"),
-                    "price": quote.get("regularMarketPrice"),
-                    "currency": quote.get("currency"),
-                    "market_cap": quote.get("marketCap"),
-                    "52_week_high": quote.get("fiftyTwoWeekHigh"),
-                    "52_week_low": quote.get("fiftyTwoWeekLow"),
+                    "symbol": ticker,
+                    "price": price_match.group(1),
+                    "currency": curr_match.group(1) if curr_match else "USD"
                 }
-    except Exception:
+    except Exception as e:
+        # Log fetch error locally; allow agent context to proceed without data on failure
+        print(f"Google Finance fetch failed for {ticker}: {e}")
         pass
     return None
 
@@ -61,7 +57,7 @@ def fetch_sec_filings(company_name: str) -> str:
     try:
         # SEC EDGAR company search endpoint
         search_url = f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company={urllib.parse.quote(company_name)}&type=10-K%7C10-Q&dateb=&owner=exclude&count=10&search_text="
-        req = urllib.request.Request(search_url, headers={"User-Agent": "Python"})
+        req = urllib.request.Request(search_url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=5) as response:
             html = response.read().decode()
             # Parse HTML for filing links (simplified)
@@ -79,22 +75,24 @@ def build_market_context(company_name: str) -> str:
     # Try stock quote
     # Handle company name to ticker mapping (simplified)
     ticker_map = {
-        "glencore": "GLDRX",
-        "vitol": "VITOL",
-        "shell": "SHEL",
-        "totalenergies": "TTE",
-        "bp": "BP",
-        "chevron": "CVX",
+        "glencore": "GLEN:LON",
+        "vitol": "PRIVATE",
+        "shell": "SHEL:NYSE",
+        "totalenergies": "TTE:PAR",
+        "bp": "BP:LON",
+        "chevron": "CVX:NYSE",
     }
-    ticker = ticker_map.get(company_name.lower().replace(" ", ""), company_name.upper())
-    quote = fetch_company_quote(ticker)
-    if quote:
-        parts.append(
-            f"Current Market Data ({ticker}): "
-            f"Price ${quote['price']} | "
-            f"52W High ${quote['52_week_high']} | "
-            f"52W Low ${quote['52_week_low']}"
-        )
+    
+    clean_name = company_name.lower().replace(" ", "")
+    ticker = ticker_map.get(clean_name, company_name.upper())
+
+    if ticker != "PRIVATE":
+        quote = fetch_company_quote(ticker)
+        if quote:
+            parts.append(
+                f"Current Google Finance Data ({ticker}): "
+                f"Price {quote['currency']} {quote['price']}"
+            )
 
     # Try SEC filings
     sec_info = fetch_sec_filings(company_name)
