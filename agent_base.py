@@ -4,6 +4,9 @@ Shared utilities for all treasury agents: Gemini caller and BQ memo persistence.
 import os
 import uuid
 from datetime import datetime, timezone
+from dotenv import load_dotenv
+
+load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
