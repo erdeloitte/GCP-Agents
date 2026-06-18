@@ -1055,7 +1055,8 @@ async function runAgent(type) {
     const d = await r.json();
 
     if (!r.ok) {
-      out.innerHTML = `<div class="memo-loading" style="color:var(--danger,#b91c1c)">Error: ${x(d.error || r.statusText)}</div>`;
+      const detail = d.detail ? `<pre style="font-size:10px;margin-top:6px;white-space:pre-wrap;color:#b91c1c">${x(d.detail)}</pre>` : '';
+      out.innerHTML = `<div class="memo-loading" style="color:#b91c1c">Error: ${x(d.error || r.statusText)}${detail}</div>`;
       return;
     }
 

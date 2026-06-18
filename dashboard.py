@@ -24,6 +24,12 @@ app = Flask(__name__, template_folder=os.path.dirname(os.path.abspath(__file__))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 
+@app.errorhandler(Exception)
+def handle_exception(e):
+    import traceback
+    return jsonify({"error": str(e), "detail": traceback.format_exc()}), 500
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _gemini(prompt: str, temperature: float = 0.3) -> str:
