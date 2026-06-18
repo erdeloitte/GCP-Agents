@@ -39,13 +39,14 @@ def _gemini(prompt: str, temperature: float = 0.3) -> str:
     if not GEMINI_API_KEY:
         return "GEMINI_API_KEY not configured."
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel(
-            "gemini-1.5-flash",
-            generation_config={"temperature": temperature, "max_output_tokens": 1024},
+        from google import genai
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        response = client.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=prompt,
+            config={"temperature": temperature, "max_output_tokens": 1024},
         )
-        return model.generate_content(prompt).text.strip()
+        return response.text.strip()
     except Exception as e:
         return f"LLM error: {e}"
 

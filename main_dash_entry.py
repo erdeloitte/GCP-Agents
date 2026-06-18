@@ -8,6 +8,7 @@ Endpoints:
   POST /api/chat         – Gemini-powered Q&A over counterparty data
 """
 import os
+from google import genai
 from flask import Flask, render_template, request, jsonify
 from bigquery_helper import get_counterparties, get_summary_stats, build_llm_context
 
@@ -19,9 +20,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 def _get_gemini_response(question: str, context: str) -> str:
     """Call Gemini 1.5 Flash (free tier) with BQ context injected."""
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        client = genai.Client(api_key=GEMINI_API_KEY)
         prompt = (
             "You are a treasury and commodity trading analyst assistant. "
             "Answer the user's question using ONLY the data provided below. "
@@ -29,7 +28,7 @@ def _get_gemini_response(question: str, context: str) -> str:
             f"DATA:\n{context}\n\n"
             f"QUESTION: {question}"
         )
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(model="gemini-1.5-flash", contents=prompt)
         return response.text
     except Exception as e:
         return f"LLM error: {e}"
