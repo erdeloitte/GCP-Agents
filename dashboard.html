@@ -3,1048 +3,761 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Counterparty Intelligence | Deloitte AI Hub</title>
+  <title>Treasury & Commodity Intelligence | Deloitte AI Hub</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
-    /* ── Tokens ── */
     :root {
-      --green:       #006633;
-      --navy:        #002244;
+      --black:       #000000;
       --white:       #ffffff;
-      --bg:          #f0f2f4;
-      --panel:       #ffffff;
-      --border:      #c8cdd3;
-      --border-dark: #9aa3ad;
+      --gray-50:     #f9fafb;
+      --gray-100:    #f3f4f6;
+      --gray-200:    #e5e7eb;
+      --gray-400:    #9ca3af;
+      --gray-600:    #4b5563;
+      --gray-800:    #1f2937;
+      --blue:        #0d47a1;
+      --blue-light:  #1e88e5;
       --text:        #111827;
-      --text-mid:    #4b5563;
-      --text-dim:    #9ca3af;
-      --accent-row:  #f5f8f5;
-      --mono:        'Roboto Mono', monospace;
+      --text-dim:    #6b7280;
     }
 
-    /* ── Reset ── */
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; }
     body {
-      font-family: 'Inter', sans-serif;
-      font-size: 13px;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--white);
       color: var(--text);
-      background: var(--bg);
-      line-height: 1.5;
+      line-height: 1.6;
     }
 
-    /* ── Top bar ── */
-    .topbar {
-      background: var(--navy);
+    /* Header */
+    .header {
+      background: var(--black);
       color: var(--white);
-      display: flex;
-      align-items: stretch;
-      height: 48px;
-      border-bottom: 3px solid var(--green);
+      padding: 24px;
+      border-bottom: 1px solid var(--gray-200);
     }
-    .topbar-brand {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      padding: 0 24px;
-      border-right: 1px solid rgba(255,255,255,0.12);
+    .header-inner {
+      max-width: 1400px;
+      margin: 0 auto;
     }
-    .brand-mark {
-      font-size: 11px;
+    .header-title {
+      font-size: 24px;
       font-weight: 700;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      color: var(--white);
-      border: 1px solid rgba(255,255,255,0.35);
-      padding: 3px 7px;
+      letter-spacing: -0.5px;
+      margin-bottom: 4px;
     }
-    .brand-name {
+    .header-sub {
       font-size: 13px;
-      font-weight: 600;
-      letter-spacing: 0.3px;
-    }
-    .brand-sub {
-      font-size: 10px;
-      font-weight: 300;
-      color: rgba(255,255,255,0.55);
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      margin-top: 1px;
-    }
-    .topbar-right {
-      margin-left: auto;
-      display: flex;
-      align-items: center;
-      gap: 0;
-      border-left: 1px solid rgba(255,255,255,0.12);
-    }
-    .topbar-cell {
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      padding: 0 18px;
-      border-left: 1px solid rgba(255,255,255,0.08);
-      font-size: 10px;
       font-weight: 500;
+      color: rgba(255,255,255,0.6);
       letter-spacing: 0.5px;
       text-transform: uppercase;
-      color: rgba(255,255,255,0.55);
     }
-    .topbar-cell strong {
-      font-family: var(--mono);
+    .header-meta {
+      margin-top: 12px;
       font-size: 12px;
-      color: var(--white);
-      font-weight: 400;
-      letter-spacing: 0;
-      text-transform: none;
-    }
-    .pipeline-status {
+      color: rgba(255,255,255,0.5);
       display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 0 20px;
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      color: #4ade80;
-      border-left: 1px solid rgba(255,255,255,0.08);
-    }
-    .dot {
-      width: 6px;
-      height: 6px;
-      background: #4ade80;
-      display: inline-block;
+      gap: 24px;
     }
 
-    /* ── KPI bar ── */
-    .kpi-bar {
-      background: var(--panel);
-      border-bottom: 1px solid var(--border);
-      display: flex;
-    }
-    .kpi-item {
-      flex: 1;
-      padding: 10px 20px;
-      border-right: 1px solid var(--border);
-    }
-    .kpi-item:last-child { border-right: none; }
-    .kpi-label {
-      font-size: 9px;
-      font-weight: 700;
-      letter-spacing: 1.2px;
-      text-transform: uppercase;
-      color: var(--text-dim);
-    }
-    .kpi-value {
-      font-family: var(--mono);
-      font-size: 20px;
-      font-weight: 500;
-      color: var(--text);
-      line-height: 1.2;
-      margin-top: 2px;
-    }
-    .kpi-value.green { color: var(--green); }
-    .kpi-unit {
-      font-size: 9px;
-      color: var(--text-dim);
-      margin-top: 1px;
-    }
-
-    /* ── Main layout ── */
-    .layout {
+    /* Main container */
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 40px 24px;
       display: grid;
-      grid-template-columns: 1fr 340px;
-      height: calc(100vh - 48px - 43px); /* topbar + kpi */
+      grid-template-columns: 1fr 380px;
+      gap: 32px;
     }
 
-    /* ── Left panel ── */
-    .left-panel {
+    /* Left: Agents */
+    .main {
       display: flex;
       flex-direction: column;
-      overflow: hidden;
-      border-right: 1px solid var(--border);
+      gap: 32px;
     }
 
-    /* ── Section header ── */
-    .section-header {
-      background: var(--panel);
-      border-bottom: 1px solid var(--border);
-      padding: 8px 16px;
+    /* Hero */
+    .hero {
+      padding: 32px;
+      background: var(--gray-50);
+      border: 1px solid var(--gray-200);
+    }
+    .hero h2 {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      color: var(--black);
+    }
+    .hero p {
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--text-dim);
+      max-width: 600px;
+    }
+
+    /* Agent input */
+    .agent-input-section {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .agent-input-section label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--gray-600);
+    }
+    .agent-input-section input {
+      padding: 12px 16px;
+      border: 1px solid var(--gray-200);
+      font-size: 14px;
+      font-family: inherit;
+      outline: none;
+    }
+    .agent-input-section input:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(13,71,161,0.1);
+    }
+
+    /* Agent buttons grid */
+    .agent-buttons {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .agent-btn {
+      padding: 16px 12px;
+      border: 1px solid var(--gray-200);
+      background: var(--white);
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      cursor: pointer;
+      color: var(--text);
+      transition: all 0.2s;
+      text-align: center;
+    }
+    .agent-btn:hover {
+      border-color: var(--blue);
+      background: var(--gray-50);
+      color: var(--blue);
+    }
+    .agent-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .agent-btn.running {
+      border-color: var(--blue);
+      background: var(--blue);
+      color: var(--white);
+    }
+
+    .btn-orchestrate {
+      grid-column: 1 / -1;
+      background: var(--black);
+      color: var(--white);
+      border-color: var(--black);
+      font-weight: 800;
+      letter-spacing: 0.8px;
+    }
+    .btn-orchestrate:hover {
+      background: var(--gray-800);
+      border-color: var(--gray-800);
+    }
+
+    /* Agent output */
+    .agent-output {
+      min-height: 300px;
+      padding: 32px;
+      background: var(--white);
+      border: 1px solid var(--gray-200);
+      display: none;
+    }
+    .agent-output.visible {
+      display: block;
+    }
+
+    /* Memo cards */
+    .memo-card {
+      margin-bottom: 24px;
+    }
+    .memo-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--gray-100);
+    }
+    .memo-agent-label {
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--gray-600);
+    }
+    .risk-badge {
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.8px;
+      padding: 4px 8px;
+      border: 1px solid currentColor;
+      font-family: monospace;
+    }
+    .risk-LOW      { color: #059669; border-color: #d1fae5; background: #f0fdf4; }
+    .risk-MEDIUM   { color: #b45309; border-color: #fef3c7; background: #fffbeb; }
+    .risk-HIGH     { color: #dc2626; border-color: #fee2e2; background: #fef2f2; }
+    .risk-CRITICAL { color: #7f1d1d; border-color: #fecaca; background: #fee2e2; font-weight: 900; }
+
+    .memo-counterparty {
+      margin-left: auto;
+      font-size: 11px;
+      color: var(--text-dim);
+      font-weight: 600;
+    }
+
+    .memo-text {
+      font-size: 13px;
+      line-height: 1.7;
+      color: var(--text);
+      margin-bottom: 12px;
+    }
+    .memo-proposal {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--blue);
+      font-family: 'Courier New', monospace;
+      padding: 10px 12px;
+      background: var(--gray-50);
+      border-left: 3px solid var(--blue);
+    }
+
+    .exec-summary {
+      background: var(--black);
+      color: var(--white);
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    .exec-summary .memo-agent-label {
+      color: rgba(255,255,255,0.5);
+    }
+    .exec-summary .memo-text {
+      color: rgba(255,255,255,0.95);
+      font-weight: 500;
+    }
+
+    .memo-loading {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: var(--text-dim);
+    }
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--gray-200);
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Right sidebar */
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .card {
+      padding: 24px;
+      background: var(--white);
+      border: 1px solid var(--gray-200);
+    }
+    .card-title {
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      color: var(--gray-600);
+      margin-bottom: 16px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      flex-shrink: 0;
     }
-    .section-title {
+
+    /* KPI */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .kpi {
+      text-align: center;
+    }
+    .kpi-label {
       font-size: 10px;
       font-weight: 700;
-      letter-spacing: 1.5px;
+      letter-spacing: 0.8px;
       text-transform: uppercase;
-      color: var(--navy);
-    }
-    .section-meta {
-      font-size: 10px;
       color: var(--text-dim);
-      font-family: var(--mono);
+      margin-bottom: 4px;
+    }
+    .kpi-value {
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--black);
+      font-family: 'Courier New', monospace;
     }
 
-    /* ── Toolbar ── */
-    .toolbar {
-      background: var(--bg);
-      border-bottom: 1px solid var(--border);
-      padding: 6px 16px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-shrink: 0;
-    }
-    .toolbar input,
-    .toolbar select {
-      height: 28px;
-      padding: 0 8px;
-      border: 1px solid var(--border-dark);
-      background: var(--white);
-      font-family: 'Inter', sans-serif;
-      font-size: 12px;
-      color: var(--text);
-      outline: none;
-    }
-    .toolbar input { width: 200px; }
-    .toolbar input:focus,
-    .toolbar select:focus { border-color: var(--green); }
-    .btn {
-      height: 28px;
-      padding: 0 14px;
-      border: 1px solid var(--border-dark);
-      background: var(--white);
-      font-family: 'Inter', sans-serif;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.4px;
-      text-transform: uppercase;
-      cursor: pointer;
-      color: var(--text);
-    }
-    .btn:hover { background: var(--bg); }
-    .btn-primary {
-      background: var(--navy);
-      color: var(--white);
-      border-color: var(--navy);
-    }
-    .btn-primary:hover { background: #003366; }
-    .toolbar-sep {
-      width: 1px;
-      height: 20px;
-      background: var(--border);
-    }
-
-    /* ── Table ── */
-    .table-scroll {
-      overflow-y: auto;
-      flex: 1;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 12px;
-    }
-    thead {
-      position: sticky;
-      top: 0;
-      z-index: 10;
-    }
-    thead th {
-      background: var(--navy);
-      color: rgba(255,255,255,0.85);
-      padding: 7px 10px;
-      text-align: left;
-      font-size: 9px;
-      font-weight: 600;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      cursor: pointer;
-      white-space: nowrap;
-      border-right: 1px solid rgba(255,255,255,0.08);
-      user-select: none;
-    }
-    thead th:hover { color: var(--white); }
-    thead th:last-child { border-right: none; }
-    tbody tr { border-bottom: 1px solid var(--border); }
-    tbody tr:hover { background: var(--accent-row); }
-    tbody td {
-      padding: 6px 10px;
-      vertical-align: middle;
-      border-right: 1px solid var(--border);
-      white-space: nowrap;
-    }
-    tbody td:last-child { border-right: none; }
-    .td-company { font-weight: 600; color: var(--navy); }
-    .mono { font-family: var(--mono); font-size: 11px; }
-    .right { text-align: right; }
-    .center { text-align: center; }
-
-    /* Risk coloring */
-    .val-ok   { color: var(--green); }
-    .val-warn { color: #b45309; }
-    .val-risk { color: #b91c1c; }
-
-    /* Rating pill — flat, no radius */
-    .rating {
-      display: inline-block;
-      padding: 1px 6px;
-      font-size: 10px;
-      font-weight: 700;
-      font-family: var(--mono);
-      border: 1px solid currentColor;
-    }
-    .r-ig   { color: var(--green); }
-    .r-hy   { color: #92400e; }
-    .r-nr   { color: var(--text-dim); }
-    .r-d    { color: #991b1b; }
-
-    /* Inline bar — no radius */
-    .bar-wrap { display: flex; align-items: center; gap: 6px; }
-    .bar-track { width: 48px; height: 4px; background: #e5e7eb; flex-shrink: 0; }
-    .bar-fill  { height: 4px; }
-    .bf-ok   { background: var(--green); }
-    .bf-warn { background: #d97706; }
-    .bf-risk { background: #dc2626; }
-
-    /* Empty / loading */
-    .state-row td {
-      padding: 40px;
-      text-align: center;
-      color: var(--text-dim);
-      font-size: 12px;
-      letter-spacing: 0.3px;
-    }
-
-    /* ── Right panel ── */
-    .right-panel {
-      display: flex;
-      flex-direction: column;
-      background: var(--panel);
-      overflow: hidden;
-    }
-
-    /* Upload section */
-    .upload-section {
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
-    }
-    .upload-drop {
-      margin: 12px 16px;
-      border: 1px dashed var(--border-dark);
-      padding: 16px;
+    /* Upload */
+    .upload-zone {
+      border: 2px dashed var(--gray-300);
+      padding: 20px;
       text-align: center;
       cursor: pointer;
-      background: var(--bg);
+      transition: all 0.2s;
     }
-    .upload-drop:hover { border-color: var(--green); background: #f0f7f3; }
-    .upload-drop.drag-over { border-color: var(--green); background: #e8f4ee; }
-    .upload-drop-label {
-      font-size: 11px;
-      color: var(--text-mid);
+    .upload-zone:hover {
+      border-color: var(--blue);
+      background: var(--gray-50);
+    }
+    .upload-zone.drag-over {
+      border-color: var(--blue);
+      background: rgba(13,71,161,0.05);
+    }
+    .upload-icon {
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+    .upload-label {
+      font-size: 12px;
+      color: var(--text-dim);
       line-height: 1.6;
     }
-    .upload-drop-label strong { color: var(--navy); font-weight: 600; }
+    .upload-label strong {
+      color: var(--blue);
+      font-weight: 600;
+    }
     #file-input { display: none; }
-    .upload-hint {
+    .upload-status {
+      margin-top: 12px;
+      font-size: 12px;
+      min-height: 16px;
+      font-weight: 500;
+    }
+    .upload-status.ok   { color: #059669; }
+    .upload-status.err  { color: #dc2626; }
+    .upload-status.info { color: var(--blue); }
+
+    details {
+      margin-top: 12px;
+    }
+    summary {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--blue);
+      cursor: pointer;
+      letter-spacing: 0.5px;
+    }
+    details pre {
+      margin-top: 8px;
+      padding: 8px 10px;
+      background: var(--gray-50);
+      border: 1px solid var(--gray-200);
       font-size: 10px;
+      overflow: auto;
       color: var(--text-dim);
-      margin: 0 16px 10px;
       line-height: 1.6;
     }
-    .upload-status {
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.3px;
-      min-height: 16px;
-      margin: 0 16px 10px;
-    }
-    .s-ok   { color: var(--green); }
-    .s-err  { color: #b91c1c; }
-    .s-info { color: var(--navy); }
 
-    details summary {
-      font-size: 10px;
-      font-weight: 600;
-      color: var(--navy);
-      cursor: pointer;
-      letter-spacing: 0.3px;
-      margin: 0 16px 8px;
-      list-style: none;
-    }
-    details summary::-webkit-details-marker { display: none; }
-    details pre {
-      margin: 4px 16px 10px;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      padding: 8px 10px;
-      font-family: var(--mono);
-      font-size: 10px;
-      color: var(--text-mid);
-      line-height: 1.7;
-      overflow: auto;
-    }
-
-    /* Chat section */
-    .chat-section {
+    /* Chat */
+    .chat-container {
       display: flex;
       flex-direction: column;
-      flex: 1;
-      min-height: 0;
+      height: 500px;
     }
     .chat-messages {
       flex: 1;
       overflow-y: auto;
-      padding: 12px 14px;
+      padding: 16px;
+      background: var(--gray-50);
       display: flex;
       flex-direction: column;
       gap: 10px;
-      background: #fafafa;
     }
-    .msg { display: flex; flex-direction: column; gap: 2px; max-width: 90%; }
-    .msg-user { align-self: flex-end; }
-    .msg-ai   { align-self: flex-start; }
-    .msg-label {
-      font-size: 9px;
-      font-weight: 700;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      color: var(--text-dim);
-      padding: 0 2px;
-    }
-    .msg-user .msg-label { text-align: right; }
-    .msg-bubble {
-      padding: 7px 10px;
+    .chat-msg {
+      display: flex;
+      gap: 8px;
       font-size: 12px;
-      line-height: 1.55;
-      border: 1px solid var(--border);
+      line-height: 1.6;
     }
-    .bubble-user {
-      background: var(--navy);
+    .chat-msg.ai .bubble {
+      background: var(--white);
+      border: 1px solid var(--gray-200);
+    }
+    .chat-msg.user {
+      justify-content: flex-end;
+    }
+    .chat-msg.user .bubble {
+      background: var(--black);
       color: var(--white);
-      border-color: var(--navy);
     }
-    .bubble-ai {
-      background: var(--white);
-      color: var(--text);
+    .chat-bubble {
+      max-width: 80%;
+      padding: 8px 12px;
+      border-radius: 0;
     }
-    .bubble-ai.loading { color: var(--text-dim); font-style: italic; }
-
-    .chat-scope-row {
-      padding: 6px 14px;
-      border-top: 1px solid var(--border);
-      border-bottom: 1px solid var(--border);
-      background: var(--bg);
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.5px;
-      text-transform: uppercase;
-      color: var(--text-dim);
-      flex-shrink: 0;
-    }
-    .chat-scope-row select {
-      font-family: 'Inter', sans-serif;
-      font-size: 11px;
-      border: 1px solid var(--border-dark);
-      background: var(--white);
-      padding: 2px 6px;
-      color: var(--text);
-      flex: 1;
-    }
-
-    .prompt-bar {
-      padding: 6px 14px;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
-      background: var(--panel);
-      flex-shrink: 0;
-    }
-    .chip {
-      font-size: 10px;
-      font-weight: 500;
-      padding: 2px 8px;
-      border: 1px solid var(--border-dark);
-      background: var(--bg);
-      color: var(--text-mid);
-      cursor: pointer;
-      font-family: 'Inter', sans-serif;
-      letter-spacing: 0.2px;
-    }
-    .chip:hover { border-color: var(--green); color: var(--green); background: #f0f7f3; }
-
     .chat-input-row {
       display: flex;
-      border-top: 1px solid var(--border);
-      flex-shrink: 0;
+      border-top: 1px solid var(--gray-200);
     }
     .chat-input-row input {
       flex: 1;
-      height: 36px;
-      padding: 0 12px;
+      padding: 12px 16px;
       border: none;
-      border-right: 1px solid var(--border);
-      font-family: 'Inter', sans-serif;
+      font-family: inherit;
       font-size: 12px;
-      color: var(--text);
       outline: none;
-      background: var(--white);
     }
-    .chat-input-row input:focus { background: #f9fffe; }
+    .chat-input-row input:focus {
+      background: var(--gray-50);
+    }
     .chat-send {
-      height: 36px;
       padding: 0 16px;
-      background: var(--green);
+      background: var(--blue);
       color: var(--white);
       border: none;
-      font-family: 'Inter', sans-serif;
-      font-size: 11px;
       font-weight: 700;
+      cursor: pointer;
+      font-size: 11px;
       letter-spacing: 0.8px;
       text-transform: uppercase;
-      cursor: pointer;
     }
-    .chat-send:hover { background: #005228; }
+    .chat-send:hover {
+      background: var(--blue-light);
+    }
 
-    /* ── Status bar ── */
-    .statusbar {
-      background: var(--navy);
-      color: rgba(255,255,255,0.5);
-      font-size: 10px;
-      padding: 0 16px;
-      height: 20px;
+    /* Tabs */
+    .tabs {
       display: flex;
-      align-items: center;
-      justify-content: space-between;
-      letter-spacing: 0.3px;
-      border-top: 1px solid rgba(255,255,255,0.08);
+      gap: 0;
+      border-bottom: 1px solid var(--gray-200);
+      margin-bottom: 16px;
     }
-    .statusbar span { color: rgba(255,255,255,0.75); }
+    .tab {
+      padding: 12px 16px;
+      border: none;
+      background: none;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-dim);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      letter-spacing: 0.5px;
+    }
+    .tab.active {
+      color: var(--black);
+      border-bottom-color: var(--blue);
+    }
+    .tab-content {
+      display: none;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .tab-content.active {
+      display: block;
+    }
 
-    /* ── Agent panel ── */
-    .agent-section { border-bottom: 1px solid var(--border); flex-shrink: 0; }
-    .agent-cp-row {
-      display: flex; gap: 6px; padding: 8px 16px;
-      border-bottom: 1px solid var(--border); background: var(--bg);
+    /* Table (secondary) */
+    table {
+      width: 100%;
+      font-size: 11px;
+      border-collapse: collapse;
     }
-    .agent-cp-row input {
-      flex: 1; height: 28px; padding: 0 8px;
-      border: 1px solid var(--border-dark); background: var(--white);
-      font-family: 'Inter', sans-serif; font-size: 12px; color: var(--text); outline: none;
+    thead th {
+      background: var(--black);
+      color: var(--white);
+      padding: 8px 10px;
+      text-align: left;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      white-space: nowrap;
     }
-    .agent-cp-row input:focus { border-color: var(--green); }
-    .agent-btns {
-      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;
-      padding: 8px 16px;
+    tbody td {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--gray-100);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
-    .agent-btn {
-      height: 32px; border: 1px solid var(--border-dark);
-      background: var(--white); font-family: 'Inter', sans-serif;
-      font-size: 10px; font-weight: 700; letter-spacing: 0.8px;
-      text-transform: uppercase; cursor: pointer; color: var(--navy);
-      display: flex; align-items: center; justify-content: center; gap: 6px;
+    tbody tr:hover {
+      background: var(--gray-50);
     }
-    .agent-btn:hover { background: var(--bg); border-color: var(--green); color: var(--green); }
-    .agent-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-    .agent-btn.running { color: var(--text-dim); border-color: var(--border); }
-    .btn-orchestrate {
-      grid-column: 1 / -1; background: var(--navy); color: var(--white);
-      border-color: var(--navy); height: 34px;
-    }
-    .btn-orchestrate:hover { background: #003366; color: var(--white); }
-    .agent-output {
-      max-height: 260px; overflow-y: auto;
-      border-top: 1px solid var(--border);
-      background: #fafafa; display: none;
-    }
-    .agent-output.visible { display: block; }
-    .memo-card { border-bottom: 1px solid var(--border); padding: 10px 14px; }
-    .memo-card:last-child { border-bottom: none; }
-    .memo-header {
-      display: flex; align-items: center; gap: 8px;
-      margin-bottom: 6px;
-    }
-    .memo-agent-label {
-      font-size: 9px; font-weight: 700; letter-spacing: 1.2px;
-      text-transform: uppercase; color: var(--text-dim);
-    }
-    .risk-badge {
-      font-size: 9px; font-weight: 700; letter-spacing: 0.8px;
-      padding: 1px 6px; border: 1px solid currentColor; font-family: var(--mono);
-    }
-    .risk-LOW      { color: var(--green); }
-    .risk-MEDIUM   { color: #92400e; }
-    .risk-HIGH     { color: #b91c1c; }
-    .risk-CRITICAL { color: #7f1d1d; background: #fee2e2; }
-    .memo-text { font-size: 11px; color: var(--text); line-height: 1.6; }
-    .memo-proposal {
-      margin-top: 5px; font-size: 10px; font-weight: 600;
-      color: var(--navy); font-family: var(--mono);
-    }
-    .memo-loading {
-      padding: 14px 16px; font-size: 11px; color: var(--text-dim);
-      font-style: italic;
-    }
-    .spinner-inline {
-      display: inline-block; width: 10px; height: 10px;
-      border: 1.5px solid var(--border); border-top-color: var(--green);
-      border-radius: 50%; animation: spin 0.7s linear infinite;
-      vertical-align: middle; margin-right: 5px;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* ── Scrollbars ── */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: var(--bg); }
-    ::-webkit-scrollbar-thumb { background: var(--border-dark); }
-    ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+    /* Footer */
+    footer {
+      background: var(--gray-50);
+      border-top: 1px solid var(--gray-200);
+      padding: 16px 24px;
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    @media (max-width: 1024px) {
+      .container { grid-template-columns: 1fr; }
+      .agent-buttons { grid-template-columns: 1fr 1fr; }
+      .sidebar { gap: 16px; }
+    }
   </style>
 </head>
 <body>
 
-<!-- TOP BAR -->
-<div class="topbar">
-  <div class="topbar-brand">
-    <div class="brand-mark">DELOITTE</div>
+<!-- Header -->
+<div class="header">
+  <div class="header-inner">
+    <div class="header-title">Treasury & Commodity Intelligence</div>
+    <div class="header-sub">Deloitte AI Hub · Counterparty Risk Assessment</div>
+    <div class="header-meta">
+      <span>Powered by Google Cloud, BigQuery & Gemini</span>
+      <span id="hdr-clock">—</span>
+    </div>
+  </div>
+</div>
+
+<!-- Main -->
+<div class="container">
+
+  <!-- Left: Agents -->
+  <div class="main">
+
+    <!-- Hero -->
+    <div class="hero">
+      <h2>AI-Powered Counterparty Assessment</h2>
+      <p>
+        Run specialized LNG trading risk agents to evaluate counterparties across market exposure,
+        credit quality, and settlement liquidity. Upload financial statements, select a counterparty,
+        and get instant AI-driven memos and exposure recommendations.
+      </p>
+    </div>
+
+    <!-- Agent input -->
+    <div class="agent-input-section">
+      <label for="agent-cp-input">Select or Enter Counterparty Name</label>
+      <input type="text" id="agent-cp-input" placeholder="Search: Glencore, Vitol, Shell…" list="agent-cp-list" />
+      <datalist id="agent-cp-list"></datalist>
+    </div>
+
+    <!-- Agent buttons -->
     <div>
-      <div class="brand-name">Treasury &amp; Commodity Intelligence</div>
-      <div class="brand-sub">Deloitte AI Hub · Counterparty Risk Analytics</div>
-    </div>
-  </div>
-  <div class="topbar-right">
-    <div class="topbar-cell">
-      Region
-      <strong>Europe-West4</strong>
-    </div>
-    <div class="topbar-cell">
-      Dataset
-      <strong>treasury_analytics</strong>
-    </div>
-    <div class="topbar-cell">
-      UTC
-      <strong id="hdr-clock">—</strong>
-    </div>
-    <div class="pipeline-status">
-      <span class="dot"></span>
-      Pipeline Active
-    </div>
-  </div>
-</div>
-
-<!-- KPI BAR -->
-<div class="kpi-bar">
-  <div class="kpi-item">
-    <div class="kpi-label">Counterparties</div>
-    <div class="kpi-value green" id="kpi-count">—</div>
-    <div class="kpi-unit">Total onboarded</div>
-  </div>
-  <div class="kpi-item">
-    <div class="kpi-label">Portfolio Revenue</div>
-    <div class="kpi-value" id="kpi-revenue">—</div>
-    <div class="kpi-unit">USD million (aggregate)</div>
-  </div>
-  <div class="kpi-item">
-    <div class="kpi-label">Avg EBITDA Margin</div>
-    <div class="kpi-value" id="kpi-ebitda">—</div>
-    <div class="kpi-unit">Percent</div>
-  </div>
-  <div class="kpi-item">
-    <div class="kpi-label">Avg Debt / Equity</div>
-    <div class="kpi-value" id="kpi-de">—</div>
-    <div class="kpi-unit">Leverage ratio</div>
-  </div>
-  <div class="kpi-item">
-    <div class="kpi-label">Avg Current Ratio</div>
-    <div class="kpi-value" id="kpi-cr">—</div>
-    <div class="kpi-unit">Liquidity</div>
-  </div>
-</div>
-
-<!-- MAIN -->
-<div class="layout">
-
-  <!-- LEFT -->
-  <div class="left-panel">
-    <div class="section-header">
-      <span class="section-title">Counterparty Register</span>
-      <span class="section-meta" id="row-count">Loading…</span>
-    </div>
-
-    <div class="toolbar">
-      <input type="text" id="search-input" placeholder="Search company name…" />
-      <select id="sector-filter">
-        <option value="">All Sectors</option>
-        <option>Oil &amp; Gas</option>
-        <option>Petrochemicals</option>
-        <option>Metals &amp; Mining</option>
-        <option>Agricultural Commodities</option>
-        <option>Power &amp; Utilities</option>
-        <option>Trading House</option>
-        <option>Financial Services</option>
-      </select>
-      <button class="btn btn-primary" onclick="loadCounterparties()">Apply</button>
-      <div class="toolbar-sep"></div>
-      <button class="btn" onclick="clearFilters()">Clear</button>
-    </div>
-
-    <div class="table-scroll">
-      <table id="cp-table">
-        <thead>
-          <tr>
-            <th onclick="sortTable('company_name')">Company</th>
-            <th onclick="sortTable('country')">Country</th>
-            <th onclick="sortTable('sector')">Sector</th>
-            <th onclick="sortTable('period_year')" class="center">FY</th>
-            <th onclick="sortTable('revenue_usd_m')" class="right">Revenue $M</th>
-            <th onclick="sortTable('ebitda_margin_pct')" class="right">EBITDA %</th>
-            <th onclick="sortTable('net_income_usd_m')" class="right">Net Income $M</th>
-            <th onclick="sortTable('total_debt_usd_m')" class="right">Total Debt $M</th>
-            <th onclick="sortTable('debt_to_equity')" class="right">D/E</th>
-            <th onclick="sortTable('current_ratio')" class="right">Curr. Ratio</th>
-            <th onclick="sortTable('credit_rating')" class="center">Rating</th>
-            <th onclick="sortTable('upload_date')">Ingested</th>
-          </tr>
-        </thead>
-        <tbody id="cp-tbody">
-          <tr class="state-row"><td colspan="12">Fetching counterparty data…</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- RIGHT -->
-  <div class="right-panel">
-
-    <!-- Upload -->
-    <div class="upload-section">
-      <div class="section-header">
-        <span class="section-title">Onboard Counterparty</span>
-        <span class="section-meta">CSV / TXT</span>
+      <div class="agent-buttons">
+        <button class="agent-btn" id="btn-market"    onclick="runAgent('market')">Market Risk</button>
+        <button class="agent-btn" id="btn-credit"    onclick="runAgent('credit')">Credit Risk</button>
+        <button class="agent-btn" id="btn-liquidity" onclick="runAgent('liquidity')">Liquidity Risk</button>
+        <button class="agent-btn btn-orchestrate" id="btn-orch" onclick="runAgent('orchestrate')">
+          Comprehensive Assessment — All Agents
+        </button>
       </div>
-      <div class="upload-drop" id="upload-zone" onclick="document.getElementById('file-input').click()">
-        <div class="upload-drop-label">
-          <strong>Click to select file</strong> or drag and drop<br/>
-          Financial statement · XLSX or CSV
+    </div>
+
+    <!-- Agent output -->
+    <div class="agent-output" id="agent-output"></div>
+
+  </div>
+
+  <!-- Right: Sidebar -->
+  <div class="sidebar">
+
+    <!-- KPI Card -->
+    <div class="card">
+      <div class="card-title">Portfolio Overview</div>
+      <div class="kpi-grid">
+        <div class="kpi">
+          <div class="kpi-label">Total Counterparties</div>
+          <div class="kpi-value" id="kpi-count">—</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Avg EBITDA Margin</div>
+          <div class="kpi-value" id="kpi-ebitda">—</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Portfolio Revenue</div>
+          <div class="kpi-value" id="kpi-revenue">—</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Avg D/E Ratio</div>
+          <div class="kpi-value" id="kpi-de">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Upload Card -->
+    <div class="card">
+      <div class="card-title">Onboard Counterparty</div>
+      <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
+        <div class="upload-icon">📊</div>
+        <div class="upload-label">
+          <strong>Click to upload</strong> financial statement<br/>
+          CSV or XLSX format
         </div>
         <input type="file" id="file-input" accept=".xlsx,.csv,.txt" />
       </div>
       <div class="upload-status" id="upload-status"></div>
       <details>
-        <summary>+ Required CSV columns</summary>
-        <pre>company_name, country, sector, credit_rating,
-period_year, revenue_usd_m, ebitda_usd_m,
-net_income_usd_m, total_assets_usd_m,
+        <summary>CSV/XLSX format guide</summary>
+        <pre>company_name, country, sector, credit_rating
+period_year, revenue_usd_m, ebitda_usd_m
+net_income_usd_m, total_assets_usd_m
 total_debt_usd_m, current_ratio</pre>
       </details>
     </div>
 
-    <!-- Agent panel -->
-    <div class="agent-section">
-      <div class="section-header">
-        <span class="section-title">AI Agents</span>
-        <span class="section-meta">LNG Trader · Risk Assessment</span>
-      </div>
-      <div class="agent-cp-row">
-        <input type="text" id="agent-cp-input" placeholder="Counterparty name…" list="agent-cp-list" />
-        <datalist id="agent-cp-list"></datalist>
-      </div>
-      <div class="agent-btns">
-        <button class="agent-btn" id="btn-market"    onclick="runAgent('market')">Market Risk</button>
-        <button class="agent-btn" id="btn-credit"    onclick="runAgent('credit')">Credit Risk</button>
-        <button class="agent-btn" id="btn-liquidity" onclick="runAgent('liquidity')">Liquidity</button>
-        <button class="agent-btn btn-orchestrate" id="btn-orch" onclick="runAgent('orchestrate')">
-          Run All Agents — Full Assessment
-        </button>
-      </div>
-      <div class="agent-output" id="agent-output"></div>
-    </div>
-
-    <!-- Chat -->
-    <div class="chat-section">
-      <div class="section-header">
-        <span class="section-title">AI Analyst</span>
-        <span class="section-meta">Gemini 1.5 Flash</span>
-      </div>
-
-      <div class="chat-scope-row">
-        Scope:
-        <select id="chat-company">
-          <option value="">All counterparties</option>
-        </select>
-      </div>
-
-      <div class="prompt-bar">
-        <button class="chip" onclick="useChip(this)">Highest leveraged counterparty?</button>
-        <button class="chip" onclick="useChip(this)">EBITDA margin above 30%?</button>
-        <button class="chip" onclick="useChip(this)">Flag current ratio below 1.</button>
-        <button class="chip" onclick="useChip(this)">Summarise credit profile.</button>
-      </div>
-
-      <div class="chat-messages" id="chat-messages">
-        <div class="msg msg-ai">
-          <div class="msg-label">Analyst</div>
-          <div class="msg-bubble bubble-ai">Connected to live counterparty database. Ask about leverage, liquidity, sector exposure, or credit risk.</div>
+    <!-- Chat Card -->
+    <div class="card">
+      <div class="card-title">AI Analyst Chat</div>
+      <div class="chat-container">
+        <div class="chat-messages" id="chat-messages">
+          <div class="chat-msg ai">
+            <div class="chat-bubble">Connected to live database. Ask about credit, leverage, sector risk, or portfolio analysis.</div>
+          </div>
+        </div>
+        <div class="chat-input-row">
+          <input type="text" id="chat-input" placeholder="Ask a question…"
+                 onkeydown="if(event.key==='Enter')sendChat()" />
+          <button class="chat-send" onclick="sendChat()">Ask</button>
         </div>
       </div>
+    </div>
 
-      <div class="chat-scope-row" style="border-top:none;border-bottom:none;">
+    <!-- Data Table (secondary) -->
+    <div class="card">
+      <div class="card-title">Database View</div>
+      <div class="tabs">
+        <button class="tab active" onclick="switchTab('search')">Search</button>
+        <button class="tab" onclick="switchTab('all')">All Data</button>
       </div>
 
-      <div class="chat-input-row">
-        <input type="text" id="chat-input" placeholder="Ask about your counterparties…"
-               onkeydown="if(event.key==='Enter')sendChat()" />
-        <button class="chat-send" onclick="sendChat()">Send</button>
+      <div class="tab-content active" id="tab-search">
+        <input type="text" id="search-input" placeholder="Filter…" style="width:100%;padding:8px;border:1px solid #e5e7eb;margin-bottom:8px;font-size:12px;" />
+        <select id="sector-filter" style="width:100%;padding:8px;border:1px solid #e5e7eb;font-size:12px;">
+          <option value="">All sectors</option>
+          <option>Oil & Gas</option>
+          <option>Trading House</option>
+          <option>Metals & Mining</option>
+        </select>
+        <button onclick="loadCounterparties()" style="width:100%;margin-top:8px;padding:8px;background:#0d47a1;color:white;border:none;font-weight:600;cursor:pointer;font-size:11px;">Search</button>
+      </div>
+
+      <div class="tab-content" id="tab-all">
+        <div style="max-height:350px;overflow-y:auto;">
+          <table id="cp-table">
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Sector</th>
+                <th>Revenue</th>
+                <th>D/E</th>
+              </tr>
+            </thead>
+            <tbody id="cp-tbody">
+              <tr><td colspan="4">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
   </div>
 </div>
 
-<!-- STATUS BAR -->
-<div class="statusbar">
-  <span>Treasury &amp; Commodity Intelligence Platform &nbsp;|&nbsp; Deloitte AI Hub &nbsp;|&nbsp; Google Cloud · BigQuery · Gemini AI</span>
-  <span id="sb-count">—</span>
-</div>
+<!-- Footer -->
+<footer>
+  Deloitte AI Hub · Treasury & Commodity Intelligence Platform · Powered by Google Cloud, BigQuery & Gemini 1.5 Flash
+</footer>
 
 <script>
-/* ── State ── */
 let allRows = [];
-let sortKey = null;
-let sortAsc = true;
+let msgId = 0;
 
-/* ── Clock ── */
+/* Clock */
 (function() {
   const el = document.getElementById('hdr-clock');
   function tick() {
-    const d = new Date();
-    el.textContent = d.toISOString().slice(0,19).replace('T',' ');
+    el.textContent = new Date().toUTCString().slice(0, 16);
   }
-  tick(); setInterval(tick, 1000);
+  tick();
+  setInterval(tick, 1000);
 })();
 
-/* ── KPIs ── */
+/* KPIs */
 async function loadStats() {
   try {
     const d = await fetch('/api/stats').then(r => r.json());
-    setText('kpi-count',   d.total_counterparties ?? '—');
-    setText('kpi-revenue', d.total_revenue_usd_m != null ? num(d.total_revenue_usd_m) : '—');
-    setText('kpi-ebitda',  d.avg_ebitda_margin   != null ? d.avg_ebitda_margin + '%' : '—');
-    setText('kpi-de',      d.avg_debt_to_equity  ?? '—');
-    setText('kpi-cr',      d.avg_current_ratio   ?? '—');
+    document.getElementById('kpi-count').textContent = d.total_counterparties ?? '—';
+    document.getElementById('kpi-revenue').textContent = d.total_revenue_usd_m ? formatNum(d.total_revenue_usd_m) : '—';
+    document.getElementById('kpi-ebitda').textContent = d.avg_ebitda_margin ? d.avg_ebitda_margin + '%' : '—';
+    document.getElementById('kpi-de').textContent = d.avg_debt_to_equity ? d.avg_debt_to_equity.toFixed(2) : '—';
   } catch(e) {}
 }
 
-/* ── Counterparties ── */
+/* Counterparties */
 async function loadCounterparties() {
   const search = document.getElementById('search-input').value.trim();
   const sector = document.getElementById('sector-filter').value;
   const params = new URLSearchParams();
   if (search) params.set('search', search);
   if (sector) params.set('sector', sector);
-  setTbody('<tr class="state-row"><td colspan="12">Fetching data…</td></tr>');
+  document.getElementById('cp-tbody').innerHTML = '<tr><td colspan="4">Loading…</td></tr>';
   try {
     allRows = await fetch('/api/counterparties?' + params).then(r => r.json());
     renderTable(allRows);
-    populateCompanyDrop(allRows);
     populateAgentDatalist(allRows);
   } catch(e) {
-    setTbody('<tr class="state-row"><td colspan="12">Error loading data.</td></tr>');
+    document.getElementById('cp-tbody').innerHTML = '<tr><td colspan="4">Error loading.</td></tr>';
   }
 }
 
 function renderTable(rows) {
-  setText('row-count', rows.length + ' records');
-  setText('sb-count', rows.length + ' counterparties loaded');
   if (!rows.length) {
-    setTbody('<tr class="state-row"><td colspan="12">No records match the current filter.</td></tr>');
+    document.getElementById('cp-tbody').innerHTML = '<tr><td colspan="4">No records.</td></tr>';
     return;
   }
-  document.getElementById('cp-tbody').innerHTML = rows.map(r => {
-    const de   = +(r.debt_to_equity  || 0);
-    const cr   = +(r.current_ratio   || 0);
-    const em   = +(r.ebitda_margin_pct || 0);
-    const deC  = de > 3 ? 'bf-risk' : de > 1.5 ? 'bf-warn' : 'bf-ok';
-    const deV  = de > 3 ? 'val-risk' : de > 1.5 ? 'val-warn' : 'val-ok';
-    const crC  = cr < 1 ? 'bf-risk' : cr < 1.5 ? 'bf-warn' : 'bf-ok';
-    const crV  = cr < 1 ? 'val-risk' : cr < 1.5 ? 'val-warn' : '';
-    const emV  = em < 10 ? 'val-warn' : '';
-    const rat  = r.credit_rating || 'N/R';
-    const ratC = ratingClass(rat);
-    const date = (r.upload_date || '').slice(0, 10);
-    return `<tr>
-      <td class="td-company">${x(r.company_name)}</td>
-      <td>${x(r.country || '—')}</td>
-      <td>${x(r.sector  || '—')}</td>
-      <td class="mono center">${r.period_year || '—'}</td>
-      <td class="mono right">${num(r.revenue_usd_m)}</td>
-      <td class="mono right ${emV}">${em.toFixed(1)}%</td>
-      <td class="mono right">${num(r.net_income_usd_m)}</td>
-      <td class="mono right">${num(r.total_debt_usd_m)}</td>
-      <td class="right">
-        <div class="bar-wrap" style="justify-content:flex-end;">
-          <div class="bar-track"><div class="bar-fill ${deC}" style="width:${Math.min(de/5,1)*100}%"></div></div>
-          <span class="mono ${deV}">${de.toFixed(2)}</span>
-        </div>
-      </td>
-      <td class="right">
-        <div class="bar-wrap" style="justify-content:flex-end;">
-          <div class="bar-track"><div class="bar-fill ${crC}" style="width:${Math.min(cr/3,1)*100}%"></div></div>
-          <span class="mono ${crV}">${cr.toFixed(2)}</span>
-        </div>
-      </td>
-      <td class="center"><span class="rating ${ratC}">${x(rat)}</span></td>
-      <td class="mono" style="color:var(--text-dim);font-size:11px;">${date}</td>
-    </tr>`;
-  }).join('');
+  document.getElementById('cp-tbody').innerHTML = rows.map(r => `<tr>
+    <td><strong>${esc(r.company_name)}</strong></td>
+    <td>${esc(r.sector || '—')}</td>
+    <td>${formatNum(r.revenue_usd_m)}</td>
+    <td>${(r.debt_to_equity || 0).toFixed(2)}</td>
+  </tr>`).join('');
 }
 
-function sortTable(key) {
-  sortAsc = sortKey === key ? !sortAsc : true;
-  sortKey = key;
-  const sorted = [...allRows].sort((a, b) => {
-    const va = a[key] ?? ''; const vb = b[key] ?? '';
-    return sortAsc ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
-  });
-  renderTable(sorted);
-}
-
-function clearFilters() {
-  document.getElementById('search-input').value = '';
-  document.getElementById('sector-filter').value = '';
-  loadCounterparties();
-}
-
-/* ── Upload ── */
-const zone   = document.getElementById('upload-zone');
-const finput = document.getElementById('file-input');
-const stEl   = document.getElementById('upload-status');
-
-zone.addEventListener('dragover',  e => { e.preventDefault(); zone.classList.add('drag-over'); });
-zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
-zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('drag-over'); handleFile(e.dataTransfer.files[0]); });
-finput.addEventListener('change', () => handleFile(finput.files[0]));
-
-async function handleFile(file) {
-  if (!file) return;
-  setSt(`Uploading ${file.name}…`, 'info');
-  try {
-    const fd = new FormData(); fd.append('file', file);
-    const r   = await fetch('/api/upload', { method: 'POST', body: fd });
-    const d   = await r.json();
-    if (!r.ok) {
-      setSt(`Upload failed: ${d.error || r.statusText}`, 'err');
-      return;
-    }
-    if (d.warning) {
-      setSt(`Parsed ${d.ingested} record(s). Note: ${d.warning}`, 'err');
-    } else {
-      setSt(`${d.ingested} record(s) ingested from ${file.name}.`, 'ok');
-    }
-    // Show parsed records immediately without waiting for BQ refresh
-    if (d.records && d.records.length) {
-      allRows = d.records.map(r => ({ ...r, upload_date: r.upload_date || '' }));
-      renderTable(allRows);
-      populateCompanyDrop(allRows);
-    }
-    setTimeout(() => { loadCounterparties(); loadStats(); }, 2000);
-  } catch (err) {
-    setSt(`Upload failed: ${err}`, 'err');
-  }
-}
-
-function setSt(msg, cls) { stEl.textContent = msg; stEl.className = 'upload-status s-' + cls; }
-
-/* ── Chat ── */
-function populateCompanyDrop(rows) {
-  const sel = document.getElementById('chat-company');
-  const names = [...new Set(rows.map(r => r.company_name).filter(Boolean))].sort();
-  sel.innerHTML = '<option value="">All counterparties</option>' + names.map(n => `<option>${x(n)}</option>`).join('');
-}
-
-function useChip(btn) { document.getElementById('chat-input').value = btn.textContent; sendChat(); }
-
-let msgId = 0;
-async function sendChat() {
-  const inp = document.getElementById('chat-input');
-  const q   = inp.value.trim(); if (!q) return;
-  const co  = document.getElementById('chat-company').value;
-  inp.value = '';
-  addMsg('user', q);
-  const lid = addMsg('ai', 'Processing…', true);
-  try {
-    const d = await fetch('/api/chat', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ question: q, company: co || null })
-    }).then(r => r.json());
-    updMsg(lid, d.answer || d.error || 'No response.');
-  } catch(e) { updMsg(lid, 'Network error.'); }
-}
-
-function addMsg(role, text, loading = false) {
-  const id  = 'msg-' + (++msgId);
-  const box = document.getElementById('chat-messages');
-  const div = document.createElement('div');
-  div.className = `msg msg-${role}`; div.id = id;
-  div.innerHTML = `<div class="msg-label">${role === 'user' ? 'You' : 'Analyst'}</div>
-    <div class="msg-bubble bubble-${role}${loading?' loading':''}">${x(text)}</div>`;
-  box.appendChild(div);
-  box.scrollTop = box.scrollHeight;
-  return id;
-}
-
-function updMsg(id, text) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  const b = el.querySelector('.msg-bubble');
-  b.classList.remove('loading'); b.textContent = text;
-  document.getElementById('chat-messages').scrollTop = 99999;
-}
-
-/* ── Utils ── */
-function setText(id, v)  { const e = document.getElementById(id); if (e) e.textContent = v; }
-function setTbody(html)  { document.getElementById('cp-tbody').innerHTML = html; }
-function num(n) { return n != null ? Number(n).toLocaleString('en-US', {maximumFractionDigits:1}) : '—'; }
-function x(s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
-function ratingClass(r) {
-  if (!r || r === 'N/R' || r === 'N/A') return 'r-nr';
-  const ig = ['AAA','AA','A+','A-','A','BBB'];
-  const hy = ['BB','B+','B-','B','CCC','CC','C'];
-  const u  = r.toUpperCase();
-  if (ig.some(p => u.startsWith(p))) return 'r-ig';
-  if (hy.some(p => u.startsWith(p))) return 'r-hy';
-  if (u.startsWith('D')) return 'r-d';
-  return 'r-nr';
-}
-
-/* ── Agents ── */
 function populateAgentDatalist(rows) {
   const dl = document.getElementById('agent-cp-list');
-  dl.innerHTML = [...new Set(rows.map(r => r.company_name).filter(Boolean))]
-    .sort().map(n => `<option value="${x(n)}">`).join('');
+  const names = [...new Set(rows.map(r => r.company_name).filter(Boolean))].sort();
+  dl.innerHTML = names.map(n => `<option value="${esc(n)}">`).join('');
 }
 
+/* Agents */
 async function runAgent(type) {
   const cp = document.getElementById('agent-cp-input').value.trim();
-  if (!cp) { alert('Enter a counterparty name first.'); return; }
+  if (!cp) { alert('Enter a counterparty name.'); return; }
 
-  const btnIds = { market: 'btn-market', credit: 'btn-credit', liquidity: 'btn-liquidity', orchestrate: 'btn-orch' };
-  const labels = { market: 'Market Risk', credit: 'Credit Risk', liquidity: 'Liquidity', orchestrate: 'Full Assessment' };
-  const allBtns = Object.values(btnIds).map(id => document.getElementById(id));
-
-  allBtns.forEach(b => { b.disabled = true; b.classList.add('running'); });
+  const btns = document.querySelectorAll('.agent-btn');
+  btns.forEach(b => { b.disabled = true; b.classList.add('running'); });
 
   const out = document.getElementById('agent-output');
   out.className = 'agent-output visible';
-  out.innerHTML = `<div class="memo-loading"><span class="spinner-inline"></span>Running ${labels[type]} agent for <strong>${x(cp)}</strong>…</div>`;
+  out.innerHTML = '<div class="memo-loading"><div class="spinner"></div> Running assessment…</div>';
 
   try {
     const r = await fetch(`/api/agent/${type}`, {
@@ -1053,22 +766,19 @@ async function runAgent(type) {
       body: JSON.stringify({ counterparty: cp })
     });
     const d = await r.json();
-
     if (!r.ok) {
-      const detail = d.detail ? `<pre style="font-size:10px;margin-top:6px;white-space:pre-wrap;color:#b91c1c">${x(d.detail)}</pre>` : '';
-      out.innerHTML = `<div class="memo-loading" style="color:#b91c1c">Error: ${x(d.error || r.statusText)}${detail}</div>`;
+      out.innerHTML = `<div style="color:#dc2626;font-weight:600;">Error: ${esc(d.error)}</div>`;
       return;
     }
-
     if (type === 'orchestrate') {
       renderOrchestrate(d);
     } else {
       out.innerHTML = renderMemoCard(d);
     }
   } catch(e) {
-    out.innerHTML = `<div class="memo-loading" style="color:#b91c1c">Network error: ${x(String(e))}</div>`;
+    out.innerHTML = `<div style="color:#dc2626;font-weight:600;">Network error</div>`;
   } finally {
-    allBtns.forEach(b => { b.disabled = false; b.classList.remove('running'); });
+    btns.forEach(b => { b.disabled = false; b.classList.remove('running'); });
   }
 }
 
@@ -1076,26 +786,26 @@ function renderMemoCard(d) {
   const rl = d.risk_level || 'MEDIUM';
   return `<div class="memo-card">
     <div class="memo-header">
-      <span class="memo-agent-label">${x((d.agent_type || '').toUpperCase())} AGENT</span>
+      <span class="memo-agent-label">${esc((d.agent_type || '').toUpperCase())} Agent</span>
       <span class="risk-badge risk-${rl}">${rl}</span>
-      <span style="font-size:10px;color:var(--text-dim);margin-left:auto;">${x(d.counterparty_name || '')}</span>
+      <span class="memo-counterparty">${esc(d.counterparty_name || '')}</span>
     </div>
-    <div class="memo-text">${x(d.memo || '').replace(/\n/g,'<br>')}</div>
-    <div class="memo-proposal">${x(d.exposure_proposal || '')}</div>
+    <div class="memo-text">${esc(d.memo || '').replace(/\n/g,'<br>')}</div>
+    <div class="memo-proposal">${esc(d.exposure_proposal || '')}</div>
   </div>`;
 }
 
 function renderOrchestrate(d) {
-  const rl  = d.aggregate_risk || 'MEDIUM';
-  const out = document.getElementById('agent-output');
-  out.innerHTML = `
-    <div class="memo-card" style="background:var(--navy);color:var(--white);">
-      <div class="memo-header">
-        <span class="memo-agent-label" style="color:rgba(255,255,255,0.6);">EXECUTIVE SUMMARY</span>
-        <span class="risk-badge risk-${rl}" style="border-color:currentColor;">${rl} AGGREGATE RISK</span>
-        <span style="font-size:10px;color:rgba(255,255,255,0.5);margin-left:auto;">${x(d.counterparty)}</span>
+  const rl = d.aggregate_risk || 'MEDIUM';
+  document.getElementById('agent-output').innerHTML = `
+    <div class="memo-card">
+      <div class="exec-summary">
+        <div class="memo-header">
+          <span class="memo-agent-label">Executive Summary</span>
+          <span class="risk-badge risk-${rl}">${rl}</span>
+        </div>
+        <div class="memo-text">${esc(d.summary || '').replace(/\n/g,'<br>')}</div>
       </div>
-      <div class="memo-text" style="color:rgba(255,255,255,0.9);">${x(d.summary || '').replace(/\n/g,'<br>')}</div>
     </div>
     ${renderMemoCard(d.market)}
     ${renderMemoCard(d.credit)}
@@ -1103,7 +813,86 @@ function renderOrchestrate(d) {
   `;
 }
 
-/* ── Init ── */
+/* Upload */
+const zone = document.getElementById('upload-zone');
+const finput = document.getElementById('file-input');
+const stEl = document.getElementById('upload-status');
+
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('drag-over'); handleFile(e.dataTransfer.files[0]); });
+finput.addEventListener('change', () => handleFile(finput.files[0]));
+
+async function handleFile(file) {
+  if (!file) return;
+  setSt(`Uploading ${file.name}…`, 'info');
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const r = await fetch('/api/upload', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) { setSt(`Error: ${d.error}`, 'err'); return; }
+    setSt(`${d.ingested} record(s) ingested.`, 'ok');
+    if (d.records) { allRows = d.records; renderTable(allRows); populateAgentDatalist(allRows); }
+    setTimeout(() => { loadCounterparties(); loadStats(); }, 1500);
+  } catch(e) { setSt('Upload failed.', 'err'); }
+}
+
+function setSt(msg, cls) {
+  stEl.textContent = msg;
+  stEl.className = 'upload-status ' + cls;
+}
+
+/* Chat */
+async function sendChat() {
+  const inp = document.getElementById('chat-input');
+  const q = inp.value.trim();
+  if (!q) return;
+  inp.value = '';
+  addMsg('user', q);
+  const lid = addMsg('ai', 'Thinking…');
+  try {
+    const d = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: q, company: null })
+    }).then(r => r.json());
+    updMsg(lid, d.answer || 'No response.');
+  } catch(e) { updMsg(lid, 'Error.'); }
+}
+
+function addMsg(role, text) {
+  const id = 'msg-' + (++msgId);
+  const box = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + role;
+  div.id = id;
+  div.innerHTML = `<div class="chat-bubble">${esc(text)}</div>`;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+  return id;
+}
+
+function updMsg(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.querySelector('.chat-bubble').textContent = text;
+  document.getElementById('chat-messages').scrollTop = 99999;
+}
+
+/* Tabs */
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-' + tab).classList.add('active');
+  if (tab === 'all') loadCounterparties();
+}
+
+/* Utils */
+function esc(s) { const d = document.createElement('div'); d.textContent = String(s || ''); return d.innerHTML; }
+function formatNum(n) { return n != null ? Number(n).toLocaleString('en-US', {maximumFractionDigits:1}) : '—'; }
+
+/* Init */
 loadStats();
 loadCounterparties();
 </script>
