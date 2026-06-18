@@ -146,36 +146,27 @@ def api_chat():
     if not GEMINI_API_KEY:
         return jsonify({"error": "GEMINI_API_KEY not configured"}), 503
 
-    # Build context from BQ
-    bq_context = build_llm_context(company_name=company)
+    context = build_llm_context(company_name=company)
 
-    # Try to fetch web data (Yahoo Finance, market news) for the company
-    web_context = ""
-    if company:
-        web_context = _fetch_market_data(company)
+    # Enrich context with external live market data if a counterparty is explicitly targeted or mentioned
+    lookup_name = company
+    if not lookup_name:
+        for c in ["glencore", "vitol", "shell", "totalenergies", "bp", "chevron"]:
+            if c in question.lower():
+                lookup_name = c
+                break
+    if lookup_name:
+        from market_data_helper import build_market_context
+        market_context = build_market_context(lookup_name)
+        if market_context:
+            context += f"\n\nExternal Live Market Context:\n{market_context}"
 
-    # Combine all context
-    full_context = f"{bq_context}\n\n"
-    if web_context:
-        full_context += f"MARKET DATA (from public sources):\n{web_context}\n\n"
-
-    prompt = (
-        "You are a treasury and commodity trading analyst with access to company financial data "
-        "and live market information. Answer the user's question using the data provided. "
-        "Be specific, cite figures when relevant, and flag any risks or concerns.\n\n"
-        f"{full_context}"
-        f"QUESTION: {question}"
+    prompt  = (
+        "You are a treasury and commodity trading analyst assistant. "
+        "Answer using ONLY the data below. Be concise and flag risks.\n\n"
+        f"DATA:\n{context}\n\nQUESTION: {question}"
     )
     return jsonify({"answer": _gemini(prompt)})
-
-
-def _fetch_market_data(company_name: str) -> str:
-    """Fetch live market data from public sources for a company."""
-    try:
-        from market_data_helper import build_market_context
-        return build_market_context(company_name)
-    except Exception:
-        return ""
 
 
 # ── Agent routes ──────────────────────────────────────────────────────────────

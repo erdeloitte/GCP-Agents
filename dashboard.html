@@ -17,8 +17,7 @@
       --gray-400:    #9ca3af;
       --gray-600:    #4b5563;
       --gray-800:    #1f2937;
-      --blue:        #0d47a1;
-      --blue-light:  #1e88e5;
+      --deloitte-green: #86BC25;
       --text:        #111827;
       --text-dim:    #6b7280;
     }
@@ -48,6 +47,9 @@
       font-weight: 700;
       letter-spacing: -0.5px;
       margin-bottom: 4px;
+    }
+    .dot {
+      color: var(--deloitte-green);
     }
     .header-sub {
       font-size: 13px;
@@ -121,8 +123,8 @@
       outline: none;
     }
     .agent-input-section input:focus {
-      border-color: var(--blue);
-      box-shadow: 0 0 0 3px rgba(13,71,161,0.1);
+      border-color: var(--deloitte-green);
+      box-shadow: 0 0 0 3px rgba(134,188,37,0.1);
     }
 
     /* Agent buttons grid */
@@ -147,17 +149,17 @@
       text-align: center;
     }
     .agent-btn:hover {
-      border-color: var(--blue);
+      border-color: var(--deloitte-green);
       background: var(--gray-50);
-      color: var(--blue);
+      color: var(--black);
     }
     .agent-btn:disabled {
       opacity: 0.5;
       cursor: not-allowed;
     }
     .agent-btn.running {
-      border-color: var(--blue);
-      background: var(--blue);
+      border-color: var(--deloitte-green);
+      background: var(--deloitte-green);
       color: var(--white);
     }
 
@@ -234,11 +236,11 @@
     .memo-proposal {
       font-size: 12px;
       font-weight: 600;
-      color: var(--blue);
+      color: var(--black);
       font-family: 'Courier New', monospace;
       padding: 10px 12px;
       background: var(--gray-50);
-      border-left: 3px solid var(--blue);
+      border-left: 3px solid var(--deloitte-green);
     }
 
     .exec-summary {
@@ -266,7 +268,7 @@
       width: 16px;
       height: 16px;
       border: 2px solid var(--gray-200);
-      border-top-color: var(--blue);
+      border-top-color: var(--deloitte-green);
       border-radius: 50%;
       animation: spin 0.7s linear infinite;
     }
@@ -329,12 +331,12 @@
       transition: all 0.2s;
     }
     .upload-zone:hover {
-      border-color: var(--blue);
+      border-color: var(--deloitte-green);
       background: var(--gray-50);
     }
     .upload-zone.drag-over {
-      border-color: var(--blue);
-      background: rgba(13,71,161,0.05);
+      border-color: var(--deloitte-green);
+      background: rgba(134,188,37,0.05);
     }
     .upload-icon {
       font-size: 28px;
@@ -346,7 +348,7 @@
       line-height: 1.6;
     }
     .upload-label strong {
-      color: var(--blue);
+      color: var(--deloitte-green);
       font-weight: 600;
     }
     #file-input { display: none; }
@@ -358,7 +360,7 @@
     }
     .upload-status.ok   { color: #059669; }
     .upload-status.err  { color: #dc2626; }
-    .upload-status.info { color: var(--blue); }
+    .upload-status.info { color: var(--deloitte-green); }
 
     details {
       margin-top: 12px;
@@ -366,7 +368,7 @@
     summary {
       font-size: 11px;
       font-weight: 600;
-      color: var(--blue);
+      color: var(--deloitte-green);
       cursor: pointer;
       letter-spacing: 0.5px;
     }
@@ -435,7 +437,7 @@
     }
     .chat-send {
       padding: 0 16px;
-      background: var(--blue);
+      background: var(--black);
       color: var(--white);
       border: none;
       font-weight: 700;
@@ -445,7 +447,7 @@
       text-transform: uppercase;
     }
     .chat-send:hover {
-      background: var(--blue-light);
+      background: var(--deloitte-green);
     }
 
     /* Tabs */
@@ -468,7 +470,7 @@
     }
     .tab.active {
       color: var(--black);
-      border-bottom-color: var(--blue);
+      border-bottom-color: var(--deloitte-green);
     }
     .tab-content {
       display: none;
@@ -528,7 +530,7 @@
 <!-- Header -->
 <div class="header">
   <div class="header-inner">
-    <div class="header-title">Treasury & Commodity Intelligence</div>
+    <div class="header-title">Treasury & Commodity Intelligence<span class="dot">.</span></div>
     <div class="header-sub">Deloitte · Counterparty Risk Assessment Platform</div>
     <div class="header-meta">
       <span>Powered by Google Cloud & BigQuery with Market Data Integration</span>
@@ -656,7 +658,7 @@ total_debt_usd_m, current_ratio</pre>
           <option>Trading House</option>
           <option>Metals & Mining</option>
         </select>
-        <button onclick="loadCounterparties()" style="width:100%;margin-top:8px;padding:8px;background:#0d47a1;color:white;border:none;font-weight:600;cursor:pointer;font-size:11px;">Search</button>
+        <button onclick="loadCounterparties()" style="width:100%;margin-top:8px;padding:8px;background:var(--black);color:white;border:none;font-weight:600;cursor:pointer;font-size:11px;" onmouseover="this.style.background='var(--deloitte-green)'" onmouseout="this.style.background='var(--black)'">Search</button>
       </div>
 
       <div class="tab-content" id="tab-all">
