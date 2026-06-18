@@ -38,6 +38,17 @@ fi
 echo "==> Creating BigQuery dataset and table (idempotent)…"
 bq --project_id "${PROJECT_ID}" mk --dataset --location EU "${BQ_DATASET}" 2>/dev/null || true
 bq --project_id "${PROJECT_ID}" query --use_legacy_sql=false "
+  CREATE TABLE IF NOT EXISTS \`${PROJECT_ID}.${BQ_DATASET}.agent_memos\` (
+    id                STRING,
+    counterparty_name STRING,
+    agent_type        STRING,
+    risk_level        STRING,
+    memo              STRING,
+    exposure_proposal STRING,
+    created_at        TIMESTAMP
+  )"
+
+bq --project_id "${PROJECT_ID}" query --use_legacy_sql=false "
   CREATE TABLE IF NOT EXISTS \`${PROJECT_ID}.${BQ_DATASET}.counterparties\` (
     company_name       STRING,
     country            STRING,

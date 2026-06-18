@@ -530,6 +530,78 @@
     }
     .statusbar span { color: rgba(255,255,255,0.75); }
 
+    /* ── Agent panel ── */
+    .agent-section { border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .agent-cp-row {
+      display: flex; gap: 6px; padding: 8px 16px;
+      border-bottom: 1px solid var(--border); background: var(--bg);
+    }
+    .agent-cp-row input {
+      flex: 1; height: 28px; padding: 0 8px;
+      border: 1px solid var(--border-dark); background: var(--white);
+      font-family: 'Inter', sans-serif; font-size: 12px; color: var(--text); outline: none;
+    }
+    .agent-cp-row input:focus { border-color: var(--green); }
+    .agent-btns {
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;
+      padding: 8px 16px;
+    }
+    .agent-btn {
+      height: 32px; border: 1px solid var(--border-dark);
+      background: var(--white); font-family: 'Inter', sans-serif;
+      font-size: 10px; font-weight: 700; letter-spacing: 0.8px;
+      text-transform: uppercase; cursor: pointer; color: var(--navy);
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .agent-btn:hover { background: var(--bg); border-color: var(--green); color: var(--green); }
+    .agent-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .agent-btn.running { color: var(--text-dim); border-color: var(--border); }
+    .btn-orchestrate {
+      grid-column: 1 / -1; background: var(--navy); color: var(--white);
+      border-color: var(--navy); height: 34px;
+    }
+    .btn-orchestrate:hover { background: #003366; color: var(--white); }
+    .agent-output {
+      max-height: 260px; overflow-y: auto;
+      border-top: 1px solid var(--border);
+      background: #fafafa; display: none;
+    }
+    .agent-output.visible { display: block; }
+    .memo-card { border-bottom: 1px solid var(--border); padding: 10px 14px; }
+    .memo-card:last-child { border-bottom: none; }
+    .memo-header {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 6px;
+    }
+    .memo-agent-label {
+      font-size: 9px; font-weight: 700; letter-spacing: 1.2px;
+      text-transform: uppercase; color: var(--text-dim);
+    }
+    .risk-badge {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.8px;
+      padding: 1px 6px; border: 1px solid currentColor; font-family: var(--mono);
+    }
+    .risk-LOW      { color: var(--green); }
+    .risk-MEDIUM   { color: #92400e; }
+    .risk-HIGH     { color: #b91c1c; }
+    .risk-CRITICAL { color: #7f1d1d; background: #fee2e2; }
+    .memo-text { font-size: 11px; color: var(--text); line-height: 1.6; }
+    .memo-proposal {
+      margin-top: 5px; font-size: 10px; font-weight: 600;
+      color: var(--navy); font-family: var(--mono);
+    }
+    .memo-loading {
+      padding: 14px 16px; font-size: 11px; color: var(--text-dim);
+      font-style: italic;
+    }
+    .spinner-inline {
+      display: inline-block; width: 10px; height: 10px;
+      border: 1.5px solid var(--border); border-top-color: var(--green);
+      border-radius: 50%; animation: spin 0.7s linear infinite;
+      vertical-align: middle; margin-right: 5px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
     /* ── Scrollbars ── */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: var(--bg); }
@@ -675,6 +747,27 @@ total_debt_usd_m, current_ratio</pre>
       </details>
     </div>
 
+    <!-- Agent panel -->
+    <div class="agent-section">
+      <div class="section-header">
+        <span class="section-title">AI Agents</span>
+        <span class="section-meta">LNG Trader · Risk Assessment</span>
+      </div>
+      <div class="agent-cp-row">
+        <input type="text" id="agent-cp-input" placeholder="Counterparty name…" list="agent-cp-list" />
+        <datalist id="agent-cp-list"></datalist>
+      </div>
+      <div class="agent-btns">
+        <button class="agent-btn" id="btn-market"    onclick="runAgent('market')">Market Risk</button>
+        <button class="agent-btn" id="btn-credit"    onclick="runAgent('credit')">Credit Risk</button>
+        <button class="agent-btn" id="btn-liquidity" onclick="runAgent('liquidity')">Liquidity</button>
+        <button class="agent-btn btn-orchestrate" id="btn-orch" onclick="runAgent('orchestrate')">
+          Run All Agents — Full Assessment
+        </button>
+      </div>
+      <div class="agent-output" id="agent-output"></div>
+    </div>
+
     <!-- Chat -->
     <div class="chat-section">
       <div class="section-header">
@@ -762,6 +855,7 @@ async function loadCounterparties() {
     allRows = await fetch('/api/counterparties?' + params).then(r => r.json());
     renderTable(allRows);
     populateCompanyDrop(allRows);
+    populateAgentDatalist(allRows);
   } catch(e) {
     setTbody('<tr class="state-row"><td colspan="12">Error loading data.</td></tr>');
   }
@@ -929,6 +1023,83 @@ function ratingClass(r) {
   if (hy.some(p => u.startsWith(p))) return 'r-hy';
   if (u.startsWith('D')) return 'r-d';
   return 'r-nr';
+}
+
+/* ── Agents ── */
+function populateAgentDatalist(rows) {
+  const dl = document.getElementById('agent-cp-list');
+  dl.innerHTML = [...new Set(rows.map(r => r.company_name).filter(Boolean))]
+    .sort().map(n => `<option value="${x(n)}">`).join('');
+}
+
+async function runAgent(type) {
+  const cp = document.getElementById('agent-cp-input').value.trim();
+  if (!cp) { alert('Enter a counterparty name first.'); return; }
+
+  const btnIds = { market: 'btn-market', credit: 'btn-credit', liquidity: 'btn-liquidity', orchestrate: 'btn-orch' };
+  const labels = { market: 'Market Risk', credit: 'Credit Risk', liquidity: 'Liquidity', orchestrate: 'Full Assessment' };
+  const allBtns = Object.values(btnIds).map(id => document.getElementById(id));
+
+  allBtns.forEach(b => { b.disabled = true; b.classList.add('running'); });
+
+  const out = document.getElementById('agent-output');
+  out.className = 'agent-output visible';
+  out.innerHTML = `<div class="memo-loading"><span class="spinner-inline"></span>Running ${labels[type]} agent for <strong>${x(cp)}</strong>…</div>`;
+
+  try {
+    const r = await fetch(`/api/agent/${type}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ counterparty: cp })
+    });
+    const d = await r.json();
+
+    if (!r.ok) {
+      out.innerHTML = `<div class="memo-loading" style="color:var(--danger,#b91c1c)">Error: ${x(d.error || r.statusText)}</div>`;
+      return;
+    }
+
+    if (type === 'orchestrate') {
+      renderOrchestrate(d);
+    } else {
+      out.innerHTML = renderMemoCard(d);
+    }
+  } catch(e) {
+    out.innerHTML = `<div class="memo-loading" style="color:#b91c1c">Network error: ${x(String(e))}</div>`;
+  } finally {
+    allBtns.forEach(b => { b.disabled = false; b.classList.remove('running'); });
+  }
+}
+
+function renderMemoCard(d) {
+  const rl = d.risk_level || 'MEDIUM';
+  return `<div class="memo-card">
+    <div class="memo-header">
+      <span class="memo-agent-label">${x((d.agent_type || '').toUpperCase())} AGENT</span>
+      <span class="risk-badge risk-${rl}">${rl}</span>
+      <span style="font-size:10px;color:var(--text-dim);margin-left:auto;">${x(d.counterparty_name || '')}</span>
+    </div>
+    <div class="memo-text">${x(d.memo || '').replace(/\n/g,'<br>')}</div>
+    <div class="memo-proposal">${x(d.exposure_proposal || '')}</div>
+  </div>`;
+}
+
+function renderOrchestrate(d) {
+  const rl  = d.aggregate_risk || 'MEDIUM';
+  const out = document.getElementById('agent-output');
+  out.innerHTML = `
+    <div class="memo-card" style="background:var(--navy);color:var(--white);">
+      <div class="memo-header">
+        <span class="memo-agent-label" style="color:rgba(255,255,255,0.6);">EXECUTIVE SUMMARY</span>
+        <span class="risk-badge risk-${rl}" style="border-color:currentColor;">${rl} AGGREGATE RISK</span>
+        <span style="font-size:10px;color:rgba(255,255,255,0.5);margin-left:auto;">${x(d.counterparty)}</span>
+      </div>
+      <div class="memo-text" style="color:rgba(255,255,255,0.9);">${x(d.summary || '').replace(/\n/g,'<br>')}</div>
+    </div>
+    ${renderMemoCard(d.market)}
+    ${renderMemoCard(d.credit)}
+    ${renderMemoCard(d.liquidity)}
+  `;
 }
 
 /* ── Init ── */

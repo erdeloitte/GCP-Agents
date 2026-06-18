@@ -1,39 +1,63 @@
 """dashboard.py
-Treasury & Commodity Counterparty Analytics – web dashboard with LLM chat.
+Deloitte AI Hub — Treasury & Commodity Counterparty Analytics
 
 Endpoints:
-  GET  /                 – main dashboard
-  GET  /api/counterparties – JSON data for the table (supports ?search=&sector=)
-  GET  /api/stats        – summary KPIs as JSON
-  POST /api/chat         – Gemini-powered Q&A over counterparty data
+  GET  /                      – dashboard UI
+  GET  /api/counterparties    – counterparty table data
+  GET  /api/stats             – KPI summary
+  POST /api/upload            – local file ingestion
+  POST /api/chat              – Gemini free-form Q&A
+  POST /api/agent/market      – Market Risk Agent
+  POST /api/agent/credit      – Credit Risk Agent
+  POST /api/agent/liquidity   – Liquidity & Settlement Agent
+  POST /api/agent/orchestrate – All three agents + executive summary
+  GET  /api/memos             – Retrieve saved agent memos
 """
 import os
 from flask import Flask, render_template, request, jsonify
-from bigquery_helper import get_counterparties, get_summary_stats, build_llm_context
+from bigquery_helper import (
+    get_counterparties, get_summary_stats, build_llm_context,
+    get_counterparty_detail, get_memos,
+)
 
 app = Flask(__name__, template_folder=os.path.dirname(os.path.abspath(__file__)))
-
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 
-def _get_gemini_response(question: str, context: str) -> str:
-    """Call Gemini 1.5 Flash (free tier) with BQ context injected."""
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _gemini(prompt: str, temperature: float = 0.3) -> str:
+    if not GEMINI_API_KEY:
+        return "GEMINI_API_KEY not configured."
     try:
         import google.generativeai as genai
         genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        prompt = (
-            "You are a treasury and commodity trading analyst assistant. "
-            "Answer the user's question using ONLY the data provided below. "
-            "Be concise, quantitative, and flag any credit or liquidity risks.\n\n"
-            f"DATA:\n{context}\n\n"
-            f"QUESTION: {question}"
+        model = genai.GenerativeModel(
+            "gemini-1.5-flash",
+            generation_config={"temperature": temperature, "max_output_tokens": 1024},
         )
-        response = model.generate_content(prompt)
-        return response.text
+        return model.generate_content(prompt).text.strip()
     except Exception as e:
         return f"LLM error: {e}"
 
+
+def _resolve_counterparty(name: str) -> tuple[str, dict | None]:
+    """Return (canonical_name, financial_data). Raises ValueError if not found."""
+    data = get_counterparty_detail(name)
+    if not data:
+        raise ValueError(f"Counterparty '{name}' not found in the database.")
+    return data.get("company_name", name), data
+
+
+def _serialise(rows: list[dict]) -> list[dict]:
+    for r in rows:
+        for k, v in r.items():
+            if hasattr(v, "isoformat"):
+                r[k] = v.isoformat()
+    return rows
+
+
+# ── Core routes ───────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
@@ -42,14 +66,11 @@ def index():
 
 @app.route("/api/counterparties")
 def api_counterparties():
-    search = request.args.get("search", "")
-    sector = request.args.get("sector", "")
-    rows   = get_counterparties(search=search or None, sector=sector or None)
-    # Serialise datetime objects to string
-    for r in rows:
-        if "upload_date" in r and hasattr(r["upload_date"], "isoformat"):
-            r["upload_date"] = r["upload_date"].isoformat()
-    return jsonify(rows)
+    rows = get_counterparties(
+        search=request.args.get("search") or None,
+        sector=request.args.get("sector") or None,
+    )
+    return jsonify(_serialise(rows))
 
 
 @app.route("/api/stats")
@@ -60,6 +81,7 @@ def api_stats():
 @app.route("/api/upload", methods=["POST"])
 def api_upload():
     from ocr_simulator import simulate_ocr
+    from bigquery_helper import insert_counterparty
     from datetime import datetime, timezone
 
     if "file" not in request.files:
@@ -70,7 +92,6 @@ def api_upload():
 
     content = file.read()
 
-    # Step 1 — parse the file
     try:
         records = simulate_ocr(content, filename=file.filename)
     except Exception as e:
@@ -82,24 +103,21 @@ def api_upload():
     now = datetime.now(timezone.utc).isoformat()
     for r in records:
         r["document_name"] = file.filename
-        r["upload_date"] = now
+        r["upload_date"]   = now
 
-    # Step 2 — insert into BigQuery (optional; skipped if credentials not configured)
     bq_warning = None
     try:
-        from bigquery_helper import insert_counterparty
         for r in records:
             insert_counterparty(r)
     except Exception as e:
         bq_warning = str(e)
 
-    # Step 3 — optionally mirror to GCS
     if os.getenv("BUCKET"):
         try:
             from cloud_storage_helper import upload_blob
             upload_blob(file.filename, content)
         except Exception:
-            pass  # non-fatal
+            pass
 
     resp = {"ingested": len(records), "filename": file.filename, "records": records}
     if bq_warning:
@@ -116,11 +134,129 @@ def api_chat():
     if not question:
         return jsonify({"error": "No question provided"}), 400
     if not GEMINI_API_KEY:
-        return jsonify({"error": "GEMINI_API_KEY not configured on the server"}), 503
+        return jsonify({"error": "GEMINI_API_KEY not configured"}), 503
 
     context = build_llm_context(company_name=company)
-    answer  = _get_gemini_response(question, context)
-    return jsonify({"answer": answer})
+    prompt  = (
+        "You are a treasury and commodity trading analyst assistant. "
+        "Answer using ONLY the data below. Be concise and flag risks.\n\n"
+        f"DATA:\n{context}\n\nQUESTION: {question}"
+    )
+    return jsonify({"answer": _gemini(prompt)})
+
+
+# ── Agent routes ──────────────────────────────────────────────────────────────
+
+def _get_body_counterparty() -> str:
+    body = request.get_json(force=True) or {}
+    name = body.get("counterparty", "").strip()
+    if not name:
+        raise ValueError("counterparty field is required")
+    return name
+
+
+@app.route("/api/agent/market", methods=["POST"])
+def api_agent_market():
+    try:
+        name = _get_body_counterparty()
+        canonical, data = _resolve_counterparty(name)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    import market_agent
+    result = market_agent.run(canonical, data)
+    return jsonify(result)
+
+
+@app.route("/api/agent/credit", methods=["POST"])
+def api_agent_credit():
+    try:
+        name = _get_body_counterparty()
+        canonical, data = _resolve_counterparty(name)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    import credit_agent
+    result = credit_agent.run(canonical, data)
+    return jsonify(result)
+
+
+@app.route("/api/agent/liquidity", methods=["POST"])
+def api_agent_liquidity():
+    try:
+        name = _get_body_counterparty()
+        canonical, data = _resolve_counterparty(name)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    import liquidity_agent
+    result = liquidity_agent.run(canonical, data)
+    return jsonify(result)
+
+
+@app.route("/api/agent/orchestrate", methods=["POST"])
+def api_agent_orchestrate():
+    try:
+        name = _get_body_counterparty()
+        canonical, data = _resolve_counterparty(name)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    import market_agent, credit_agent, liquidity_agent
+    from agent_base import call_gemini, build_memo_record, save_memo
+
+    market    = market_agent.run(canonical, data)
+    credit    = credit_agent.run(canonical, data)
+    liquidity = liquidity_agent.run(canonical, data)
+
+    # Determine aggregate risk
+    levels = {"LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
+    agg_level = max(
+        [market["risk_level"], credit["risk_level"], liquidity["risk_level"]],
+        key=lambda x: levels.get(x, 2),
+    )
+
+    summary_prompt = (
+        "You are a head of treasury at an LNG trading company. "
+        "Synthesise the three specialist memos below into a single executive summary (6–8 sentences). "
+        "Conclude with a clear recommendation: approve / approve with conditions / decline.\n\n"
+        f"COUNTERPARTY: {canonical}\n\n"
+        f"MARKET AGENT:\n{market['memo']}\nExposure: {market['exposure_proposal']}\n\n"
+        f"CREDIT AGENT:\n{credit['memo']}\nExposure: {credit['exposure_proposal']}\n\n"
+        f"LIQUIDITY AGENT:\n{liquidity['memo']}\nExposure: {liquidity['exposure_proposal']}\n\n"
+        "Write the executive summary now."
+    )
+    summary = call_gemini(summary_prompt, temperature=0.3)
+
+    orch_record = build_memo_record(
+        counterparty=canonical,
+        agent_type="orchestrator",
+        risk_level=agg_level,
+        memo=summary,
+        exposure_proposal=(
+            f"Market: {market['exposure_proposal']} | "
+            f"Credit: {credit['exposure_proposal']} | "
+            f"Liquidity: {liquidity['exposure_proposal']}"
+        ),
+    )
+    save_memo(orch_record)
+
+    return jsonify({
+        "counterparty": canonical,
+        "aggregate_risk": agg_level,
+        "summary": summary,
+        "market":    market,
+        "credit":    credit,
+        "liquidity": liquidity,
+    })
+
+
+@app.route("/api/memos")
+def api_memos():
+    cp = request.args.get("counterparty") or None
+    at = request.args.get("agent_type") or None
+    rows = get_memos(counterparty_name=cp, agent_type=at)
+    return jsonify(_serialise(rows))
 
 
 if __name__ == "__main__":
