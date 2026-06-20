@@ -1,0 +1,30 @@
+[2026-06-19 21:42:05,107;s] - [INFO] - [log] - Warning: file .portInUse was not found. Try to fallback to default port number.
+[2026-06-19 21:42:05,107;s] - [INFO] - [log] - Try defaulting to port 9000...
+[2026-06-19 21:42:05,107;s] - [INFO] - [log] - Send GET request to http://127.0.0.1:9000/api/status to detect API Proxy...
+[2026-06-19 21:42:05,108;s] - [DEBUG] - [log] - Request to http://127.0.0.1:9000/api/status
+	headers = {'x-tr-applicationid': 'b0b59abbbe6848ec8b1a8f56d56757765faca358'}
+	params = None
+[2026-06-19 21:42:05,119;s] - [Level 1] - [log] - HTTP request failed: ConnectError('All connection attempts failed')
+[2026-06-19 21:42:05,119;s] - [DEBUG] - [log] - Error on checking proxy url http://127.0.0.1:9000/api/status : ConnectError('All connection attempts failed')
+[2026-06-19 21:42:05,120;s] - [DEBUG] - [log] - Default proxy port #9000 failed
+[2026-06-19 21:42:05,120;s] - [INFO] - [log] - Try defaulting to port 9060...
+[2026-06-19 21:42:05,121;s] - [INFO] - [log] - Send GET request to http://127.0.0.1:9060/api/status to detect API Proxy...
+[2026-06-19 21:42:05,122;s] - [DEBUG] - [log] - Request to http://127.0.0.1:9060/api/status
+	headers = {'x-tr-applicationid': 'b0b59abbbe6848ec8b1a8f56d56757765faca358'}
+	params = None
+[2026-06-19 21:42:05,124;s] - [Level 1] - [log] - HTTP request failed: ConnectError('All connection attempts failed')
+[2026-06-19 21:42:05,124;s] - [DEBUG] - [log] - Error on checking proxy url http://127.0.0.1:9060/api/status : ConnectError('All connection attempts failed')
+[2026-06-19 21:42:05,125;s] - [DEBUG] - [log] - Default proxy port #9060 failed
+[2026-06-19 21:42:05,125;s] - [ERROR] - [log] - Error: no proxy address identified.
+Check if Eikon Desktop or Eikon API Proxy is running.
+[2026-06-19 21:42:05,126;s] - [INFO] - [log] - Try to handshake on url http://127.0.0.1:None/api/handshake...
+[2026-06-19 21:42:05,126;s] - [DEBUG] - [log] - Request to http://127.0.0.1:None/api/handshake
+	headers = {'Content-Type': 'application/json', 'x-tr-applicationid': 'b0b59abbbe6848ec8b1a8f56d56757765faca358'}
+	params = None
+[2026-06-19 21:42:05,127;s] - [Level 1] - [log] - HTTP request failed: InvalidURL("Invalid port: 'None'")
+[2026-06-19 21:42:05,127;s] - [ERROR] - [log] - Error on handshake url http://127.0.0.1:None/api/handshake : InvalidURL("Invalid port: 'None'")
+[2026-06-19 21:42:05,127;s] - [ERROR] - [log] - Error on handshake url http://127.0.0.1:None/api/handshake : InvalidURL("Invalid port: 'None'")
+[2026-06-19 21:42:05,128;s] - [ERROR] - [log] - Port number was not identified, cannot send any request
+[2026-06-19 21:42:05,128;s] - [Level 1] - [log] - Received notification for closed streaming session 0
+[2026-06-19 21:42:05,129;s] - [Level 1] - [log] - Received notification for closed streaming session 0
+[2026-06-19 21:42:05,129;s] - [DEBUG] - [set_app_key] - Init a Desktop session with new app_key

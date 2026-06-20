@@ -22,6 +22,7 @@ export DASH_SERVICE="${DASH_SERVICE:-treasury-dashboard}"
 export BQ_DATASET="${BQ_DATASET:-treasury_analytics}"
 export GEMINI_API_KEY="${GEMINI_API_KEY:-}"
 
+
 # ── Validate ─────────────────────────────────────────────────────────
 for var in PROJECT_ID REGION SERVICE_NAME DASH_SERVICE BUCKET BQ_DATASET; do
   if [[ -z "${!var:-}" ]]; then

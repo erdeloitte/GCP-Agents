@@ -4,22 +4,34 @@ Market Risk Agent — LNG trader perspective.
 Assesses a counterparty's exposure to commodity market movements,
 revenue quality, sector concentration, and recommends a notional
 trading exposure limit.
+
 """
 from agent_base import call_gemini, build_memo_record, save_memo
+from pydantic import BaseModel
+import os
+from dotenv import load_dotenv
+import langchain
 
+langchain.debug = False
+
+load_dotenv()
+  
 
 SYSTEM_CONTEXT = """\
-You are a senior LNG trader at a major energy company conducting counterparty due diligence.
-Your role is to assess market risk: how exposed is this counterparty to commodity price swings,
-what is the quality and stability of their revenue, and how large a notional position should we
+You are a senior LNG trader at a major energy company conducting market research for counterparty due diligence.
+Your role is to assess market risk: where are the markets the counterparty operates? how exposed is this counterparty to commodity price swings?
+what is the quality and stability of their revenue?how large a notional position should we
 be willing to carry with them?
+
+Use the get_headlines_tool and get_stock_price_tool (providing a stock ticker like 'SHEL', 'BP', or 'CVX') to check for recent news and investor sentiment. If headlines are unavailable or the company is private, acknowledge the lack of external market data and focus your analysis on the provided financial metrics and general sector trends.
 
 Write a concise internal memo (5–8 sentences) covering:
 1. Revenue quality and commodity price sensitivity
-2. Sector and geographic concentration risk
+2. Sector and geographic concentration risk (incorporate recent news if available)
 3. EBITDA margin as a buffer against price volatility
-4. Recommended maximum notional exposure (in USD million) with rationale
-5. One-line risk verdict: LOW / MEDIUM / HIGH / CRITICAL
+4. IF public - stock price and investor sentiment
+5. Recommended maximum notional exposure (in USD million) with rationale
+6. One-line risk verdict: LOW / MEDIUM / HIGH / CRITICAL
 
 End your response with exactly two lines:
 RISK_LEVEL: <LOW|MEDIUM|HIGH|CRITICAL>
@@ -45,7 +57,7 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
         "Write the memo now."
     )
 
-    raw = call_gemini(prompt, temperature=0.25)
+    raw = call_gemini(prompt, temperature=1)
     risk_level, exposure = _parse_verdict(raw)
     memo_text = _strip_verdict_lines(raw)
 
