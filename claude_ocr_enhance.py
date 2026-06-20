@@ -54,9 +54,10 @@ def enhance_with_claude(content: bytes, filename: str, existing_standard_records
     client = _get_claude_client()
     if not client:
         return {
-            "records": existing_standard_records,
-            "confidence": "medium",
-            "extraction_method": "standard_ocr_only",
+            "records": [],
+            "confidence": "low",
+            "extraction_method": "error",
+            "error": "ANTHROPIC_API_KEY not set - Claude enhancement unavailable. Set env var: export ANTHROPIC_API_KEY=sk-...",
             "duplicates_flagged": [],
         }
 

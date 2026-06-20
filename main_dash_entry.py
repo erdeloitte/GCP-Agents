@@ -88,16 +88,41 @@ def api_upload():
     # Step 2: If empty, fallback to Claude
     claude_result = None
     if not records:
-        print(f"[OCR] Triggering Claude enhancement...", file=sys.stderr)
+        print(f"[OCR] Standard OCR empty → Triggering Claude enhancement...", file=sys.stderr)
         try:
             claude_result = claude_ocr_fallback(content, file.filename, [])
             records = claude_result.get("records", [])
-            print(f"[CLAUDE] Returned {len(records)} records, confidence: {claude_result.get('confidence')}", file=sys.stderr)
+            extraction_method = claude_result.get("extraction_method", "unknown")
+            confidence = claude_result.get("confidence", "unknown")
+
+            if claude_result.get("error"):
+                print(f"[CLAUDE] Error: {claude_result.get('error')}", file=sys.stderr)
+            else:
+                print(f"[CLAUDE] Returned {len(records)} records, method: {extraction_method}, confidence: {confidence}", file=sys.stderr)
         except Exception as e:
-            print(f"[CLAUDE] Error: {e}", file=sys.stderr)
+            print(f"[CLAUDE] Exception: {e}", file=sys.stderr)
+            claude_result = {"error": str(e), "records": [], "extraction_method": "error"}
 
     if not records:
-        return jsonify({"error": "No records extracted. Both standard OCR and Claude failed."}), 422
+        # Detailed error debugging
+        error_details = {
+            "error": "No records extracted",
+            "debug": {
+                "standard_ocr_ran": True,
+                "claude_attempted": claude_result is not None,
+                "claude_error": claude_result.get("error") if claude_result else "Not attempted",
+                "file_size_bytes": len(content),
+                "file_name": file.filename,
+            },
+            "troubleshooting": [
+                "1. Check ANTHROPIC_API_KEY is set: echo $ANTHROPIC_API_KEY",
+                "2. Verify file format (PDF, Excel, CSV, Image)",
+                "3. Ensure file has financial data (company name, revenue, assets, etc.)",
+                "4. Try a simpler file first (single company, clear layout)",
+            ]
+        }
+        print(f"[ERROR] No records extracted: {error_details}", file=sys.stderr)
+        return jsonify(error_details), 422
 
     now = datetime.now(timezone.utc).isoformat()
     for r in records:
