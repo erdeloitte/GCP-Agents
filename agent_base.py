@@ -37,7 +37,13 @@ def get_headlines_tool(ticker_or_name: str) -> str:
         if not news:
             return f"No recent headlines found for {ticker}."
         
-        headlines = [f"- {item['title']} ({item.get('publisher', 'N/A')})" for item in news[:10]]
+        headlines = []
+        for item in news[:10]:
+            content = item.get('content', item)
+            title = content.get('title', 'No Title')
+            provider = content.get('provider', {})
+            publisher = provider.get('displayName', content.get('publisher', 'N/A'))
+            headlines.append(f"- {title} ({publisher})")
         return "\n".join(headlines)
     except Exception as e:
         return f"Error fetching news for {ticker_or_name}: {e}"
@@ -72,7 +78,10 @@ def call_gemini(prompt: str, temperature: float = 0.3) -> str:
         chat = client.chats.create(
             model="gemini-3.5-flash",
             config=types.GenerateContentConfig(
-                tools=[get_headlines_tool, get_stock_price_tool],
+                tools=[{"google_search": {}}, get_headlines_tool, get_stock_price_tool],
+                tool_config=types.ToolConfig(
+                    include_server_side_tool_invocations=True
+                ),
                 temperature=temperature,
                 max_output_tokens=1024,
             ),
