@@ -419,6 +419,7 @@
       max-width: 80%;
       padding: 8px 12px;
       border-radius: 0;
+      white-space: pre-wrap;
     }
     .chat-input-row {
       display: flex;
@@ -854,13 +855,18 @@ async function sendChat() {
   addMsg('user', q);
   const lid = addMsg('ai', 'Thinking…');
   try {
-    const d = await fetch('/api/chat', {
+    const r = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question: q, company: null })
-    }).then(r => r.json());
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      updMsg(lid, `Error: ${d.error || 'Server error'}`);
+      return;
+    }
     updMsg(lid, d.answer || 'No response.');
-  } catch(e) { updMsg(lid, 'Error.'); }
+  } catch(e) { updMsg(lid, 'Network error.'); }
 }
 
 function addMsg(role, text) {
