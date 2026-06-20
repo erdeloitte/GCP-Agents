@@ -40,18 +40,14 @@ def _gemini(prompt: str, temperature: float = 0.3) -> str:
         return "GEMINI_API_KEY not configured."
     try:
         from google import genai
-        from google.genai import types
         client = genai.Client(api_key=GEMINI_API_KEY)
         response = client.models.generate_content(
             model="gemini-3.5-flash",
             contents=prompt,
-            config=types.GenerateContentConfig(
-                tools=[{"google_search": {}}],
-                temperature=temperature,
-                max_output_tokens=2048,
-            ),
+            config={"temperature": temperature, "max_output_tokens": 1024},
         )
-        return response.text.strip()
+        text = response.text or ""
+        return text.strip()
     except Exception as e:
         return f"LLM error: {e}"
 
@@ -168,9 +164,7 @@ def api_chat():
 
     prompt  = (
         "You are a treasury and commodity trading analyst assistant. "
-        "Answer the user's question. Use the provided database context to answer questions about the portfolio counterparties, "
-        "and utilize your web search grounding tool to lookup any live stock prices, news, external financials, or general industry trends. "
-        "Be quantitative, concise, professional, and flag any credit or liquidity risks.\n\n"
+        "Answer using ONLY the data below. Be concise and flag risks.\n\n"
         f"DATA:\n{context}\n\nQUESTION: {question}"
     )
     return jsonify({"answer": _gemini(prompt)})
