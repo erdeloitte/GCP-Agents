@@ -40,14 +40,19 @@ def _gemini(prompt: str, temperature: float = 0.3) -> str:
         return "GEMINI_API_KEY not configured."
     try:
         from google import genai
+        from google.genai import types
         client = genai.Client(api_key=GEMINI_API_KEY)
         response = client.models.generate_content(
             model="gemini-3.5-flash",
             contents=prompt,
-            config={"temperature": temperature, "max_output_tokens": 1024},
+            config=types.GenerateContentConfig(
+                tools=[{"google_search": {}}],
+                temperature=temperature,
+                max_output_tokens=2048,
+            ),
         )
-        text = response.text or ""
-        return text.strip()
+        text = response.text
+        return text.strip() if text else "No response text returned."
     except Exception as e:
         return f"LLM error: {e}"
 
@@ -139,8 +144,8 @@ def api_upload():
 @app.route("/api/chat", methods=["POST"])
 def api_chat():
     body     = request.get_json(force=True) or {}
-    question = body.get("question", "").strip()
-    company  = body.get("company", "").strip() or None
+    question = (body.get("question") or "").strip()
+    company  = (body.get("company") or "").strip() or None
 
     if not question:
         return jsonify({"error": "No question provided"}), 400
@@ -164,7 +169,9 @@ def api_chat():
 
     prompt  = (
         "You are a treasury and commodity trading analyst assistant. "
-        "Answer using ONLY the data below. Be concise and flag risks.\n\n"
+        "Answer the user's question. Use the provided database context to answer questions about the portfolio counterparties, "
+        "and utilize your web search grounding tool to lookup any live stock prices, news, external financials, or general industry trends. "
+        "Be quantitative, concise, professional, and flag any credit or liquidity risks.\n\n"
         f"DATA:\n{context}\n\nQUESTION: {question}"
     )
     return jsonify({"answer": _gemini(prompt)})
@@ -174,7 +181,7 @@ def api_chat():
 
 def _get_body_counterparty() -> str:
     body = request.get_json(force=True) or {}
-    name = body.get("counterparty", "").strip()
+    name = (body.get("counterparty") or "").strip()
     if not name:
         raise ValueError("counterparty field is required")
     return name

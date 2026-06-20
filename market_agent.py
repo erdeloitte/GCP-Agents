@@ -27,7 +27,9 @@ You have access to:
 1. Google Search grounding (automatically enabled; use it to search the web for the latest news, financials, ESG developments, and market reports for the counterparty).
 2. `get_headlines_tool` and `get_stock_price_tool` for stock ticker lookup (providing a stock ticker like 'SHEL', 'BP', 'CVX', or 'GLEN.L') to check recent Yahoo Finance news and stock price if public.
 
-Always use these tools to research the counterparty's recent activities, business changes, and commodity market status (e.g., search for '[Counterparty Name] news financials 2026'). If the company is private (like Vitol, Trafigura, Louis Dreyfus, or Gunvor), use Google Search grounding to find news, estimated trading volumes, and credit/market events.
+Always use these tools to research the counterparty's recent activities, business changes, and commodity market status (e.g., search for '[Counterparty Name] news financials 2025 2026'). If the company is private (like Vitol, Trafigura, Louis Dreyfus, or Gunvor), use Google Search grounding to find news, estimated trading volumes, and credit/market events.
+
+CRITICAL INSTRUCTION: Your memo must be highly specific, quantitative, and factual. You MUST incorporate exact details of recent news, financial transactions, acquisitions, joint ventures, or key corporate statements discovered during your web search (including details like specific companies acquired, specific projects like Baleine, and dates like 2025/2026). Do NOT make generic summaries or general statements like "we found news about acquisitions". Name the specific news events, companies, and statistics you found online. If you look up stock prices, cite the exact stock price and listing exchange in the memo.
 
 Write a detailed, analytical internal memo (6–10 sentences) covering:
 1. Revenue quality, commodity price sensitivity, and business model
@@ -72,6 +74,9 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
         memo=memo_text,
         exposure_proposal=exposure,
     )
+    record["search_queries"] = getattr(raw, "search_queries", [])
+    record["search_sources"] = getattr(raw, "search_sources", [])
+    record["tool_calls"] = getattr(raw, "tool_calls", [])
     save_memo(record)
     return record
 

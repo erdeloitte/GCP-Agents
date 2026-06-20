@@ -114,7 +114,9 @@ def build_llm_context(company_name: str = None) -> str:
 def save_memo(record: dict) -> None:
     """Persist an agent memo to the agent_memos table."""
     client = get_bq_client()
-    errors = client.insert_rows_json(_memo_table(), [record])
+    allowed_keys = {"id", "counterparty_name", "agent_type", "risk_level", "memo", "exposure_proposal", "created_at"}
+    clean_record = {k: v for k, v in record.items() if k in allowed_keys}
+    errors = client.insert_rows_json(_memo_table(), [clean_record])
     if errors:
         raise RuntimeError(f"BigQuery memo insert errors: {errors}")
 
