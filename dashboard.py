@@ -23,7 +23,12 @@ from bigquery_helper import (
     get_counterparty_detail, get_memos,
 )
 
-app = Flask(__name__, template_folder=os.path.dirname(os.path.abspath(__file__)))
+app = Flask(
+    __name__,
+    template_folder=os.path.dirname(os.path.abspath(__file__)),
+    static_folder=os.path.dirname(os.path.abspath(__file__)),
+    static_url_path=''
+)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 
