@@ -85,19 +85,21 @@
 
     /* Hero */
     .hero {
-      padding: 32px;
-      background: var(--gray-50);
-      border: 1px solid var(--gray-200);
+      padding: 40px;
+      background: linear-gradient(135deg, var(--gray-50) 0%, rgba(134, 188, 37, 0.05) 100%);
+      border: 1px solid var(--deloitte-green);
+      border-radius: 8px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
     }
     .hero h2 {
-      font-size: 20px;
+      font-size: 22px;
       font-weight: 700;
       margin-bottom: 12px;
       color: var(--black);
     }
     .hero p {
       font-size: 14px;
-      line-height: 1.7;
+      line-height: 1.8;
       color: var(--text-dim);
       max-width: 600px;
     }
@@ -136,7 +138,7 @@
     }
     .agent-btn {
       padding: 16px 12px;
-      border: 1px solid var(--gray-200);
+      border: 2px solid var(--gray-200);
       background: var(--white);
       font-family: inherit;
       font-size: 12px;
@@ -147,11 +149,15 @@
       color: var(--text);
       transition: all 0.2s;
       text-align: center;
+      border-radius: 6px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
     }
     .agent-btn:hover {
       border-color: var(--deloitte-green);
-      background: var(--gray-50);
-      color: var(--black);
+      background: rgba(134, 188, 37, 0.05);
+      color: var(--deloitte-green);
+      box-shadow: 0 4px 8px rgba(134, 188, 37, 0.15);
+      transform: translateY(-2px);
     }
     .agent-btn:disabled {
       opacity: 0.5;
@@ -285,6 +291,12 @@
       padding: 24px;
       background: var(--white);
       border: 1px solid var(--gray-200);
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+      transition: box-shadow 0.2s, border-color 0.2s;
+    }
+    .card:hover {
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     }
     .card-title {
       font-size: 12px;
@@ -306,6 +318,10 @@
     }
     .kpi {
       text-align: center;
+      padding: 12px;
+      background: linear-gradient(135deg, rgba(134, 188, 37, 0.04), rgba(134, 188, 37, 0.02));
+      border: 1px solid rgba(134, 188, 37, 0.1);
+      border-radius: 6px;
     }
     .kpi-label {
       font-size: 10px;
@@ -313,30 +329,34 @@
       letter-spacing: 0.8px;
       text-transform: uppercase;
       color: var(--text-dim);
-      margin-bottom: 4px;
+      margin-bottom: 6px;
     }
     .kpi-value {
-      font-size: 18px;
+      font-size: 20px;
       font-weight: 800;
-      color: var(--black);
+      color: var(--deloitte-green);
       font-family: 'Courier New', monospace;
     }
 
     /* Upload */
     .upload-zone {
       border: 2px dashed var(--gray-300);
-      padding: 20px;
+      padding: 32px 20px;
       text-align: center;
       cursor: pointer;
       transition: all 0.2s;
+      border-radius: 8px;
+      background: linear-gradient(135deg, rgba(255,255,255,0.5), rgba(134,188,37,0.02));
     }
     .upload-zone:hover {
       border-color: var(--deloitte-green);
-      background: var(--gray-50);
+      background: linear-gradient(135deg, rgba(255,255,255,0.8), rgba(134,188,37,0.08));
+      box-shadow: 0 4px 12px rgba(134, 188, 37, 0.1);
     }
     .upload-zone.drag-over {
       border-color: var(--deloitte-green);
-      background: rgba(134,188,37,0.05);
+      background: linear-gradient(135deg, rgba(255,255,255,1), rgba(134,188,37,0.12));
+      box-shadow: 0 8px 16px rgba(134, 188, 37, 0.2);
     }
     .upload-icon {
       font-size: 28px;
@@ -388,12 +408,15 @@
       display: flex;
       flex-direction: column;
       height: 500px;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--gray-200);
     }
     .chat-messages {
       flex: 1;
       overflow-y: auto;
       padding: 16px;
-      background: var(--gray-50);
+      background: linear-gradient(180deg, var(--white), var(--gray-50));
       display: flex;
       flex-direction: column;
       gap: 10px;
@@ -511,12 +534,20 @@
 
     /* Footer */
     footer {
-      background: var(--gray-50);
-      border-top: 1px solid var(--gray-200);
-      padding: 16px 24px;
+      background: linear-gradient(135deg, var(--black), var(--gray-800));
+      border-top: 1px solid var(--deloitte-green);
+      padding: 24px;
       text-align: center;
       font-size: 11px;
-      color: var(--text-dim);
+      color: rgba(255,255,255,0.6);
+    }
+    footer a {
+      color: var(--deloitte-green);
+      text-decoration: none;
+      font-weight: 600;
+    }
+    footer a:hover {
+      text-decoration: underline;
     }
 
     @media (max-width: 1024px) {
@@ -531,11 +562,18 @@
 <!-- Header -->
 <div class="header">
   <div class="header-inner">
-    <div class="header-title">Treasury & Commodity Intelligence<span class="dot">.</span></div>
-    <div class="header-sub">Deloitte · Counterparty Risk Assessment Platform</div>
-    <div class="header-meta">
-      <span>Powered by Google Cloud & BigQuery with Market Data Integration</span>
-      <span id="hdr-clock">—</span>
+    <div style="display: flex; align-items: center; justify-content: space-between;">
+      <div>
+        <div class="header-title">Treasury & Commodity Intelligence<span class="dot">.</span></div>
+        <div class="header-sub">Deloitte · Counterparty Risk Assessment Platform</div>
+        <div class="header-meta">
+          <span>Powered by Google Cloud, BigQuery & Claude AI</span>
+          <span id="hdr-clock">—</span>
+        </div>
+      </div>
+      <div style="width: 60px; height: 60px; background: rgba(255,255,255,0.05); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+        <img src="AI_logo.png" alt="AI Logo" style="width: 100%; height: 100%; object-fit: contain; padding: 4px;" />
+      </div>
     </div>
   </div>
 </div>
@@ -583,7 +621,7 @@
   <!-- Right: Sidebar -->
   <div class="sidebar">
 
-    <!-- KPI Card -->
+    <!-- KPI Card: Portfolio Overview -->
     <div class="card">
       <div class="card-title">Portfolio Overview</div>
       <div class="kpi-grid">
@@ -602,6 +640,36 @@
         <div class="kpi">
           <div class="kpi-label">Avg D/E Ratio</div>
           <div class="kpi-value" id="kpi-de">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Indicators Card (Task 4) -->
+    <div class="card" id="indicators-card" style="display: none;">
+      <div class="card-title">Counterparty Indicators</div>
+      <div style="font-size: 11px; line-height: 1.7; color: var(--text);">
+        <div style="margin-bottom: 8px;"><strong id="indicator-cp-name">—</strong></div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+          <div style="padding: 8px; background: var(--gray-50); border-radius: 4px;">
+            <div style="font-size: 9px; color: var(--text-dim); font-weight: 600;">Stock Price</div>
+            <div style="font-size: 14px; font-weight: 700; color: var(--deloitte-green);" id="indicator-stock">—</div>
+          </div>
+          <div style="padding: 8px; background: var(--gray-50); border-radius: 4px;">
+            <div style="font-size: 9px; color: var(--text-dim); font-weight: 600;">D/E Ratio</div>
+            <div style="font-size: 14px; font-weight: 700; color: var(--deloitte-green);" id="indicator-de">—</div>
+          </div>
+          <div style="padding: 8px; background: var(--gray-50); border-radius: 4px;">
+            <div style="font-size: 9px; color: var(--text-dim); font-weight: 600;">Net Margin</div>
+            <div style="font-size: 14px; font-weight: 700; color: var(--deloitte-green);" id="indicator-margin">—</div>
+          </div>
+          <div style="padding: 8px; background: var(--gray-50); border-radius: 4px;">
+            <div style="font-size: 9px; color: var(--text-dim); font-weight: 600;">Cash/Liquidity</div>
+            <div style="font-size: 14px; font-weight: 700; color: var(--deloitte-green);" id="indicator-cash">—</div>
+          </div>
+        </div>
+        <div style="padding: 8px; background: rgba(134, 188, 37, 0.05); border-radius: 4px; border-left: 3px solid var(--deloitte-green);">
+          <div style="font-size: 9px; color: var(--text-dim); font-weight: 600;">Total Deposits on File</div>
+          <div style="font-size: 14px; font-weight: 700; color: var(--deloitte-green);" id="indicator-deposits">—</div>
         </div>
       </div>
     </div>
@@ -755,6 +823,9 @@ async function runAgent(type) {
   const cp = document.getElementById('agent-cp-input').value.trim();
   if (!cp) { alert('Enter a counterparty name.'); return; }
 
+  // Load indicators for this counterparty (Task 4)
+  loadCounterpartyIndicators(cp);
+
   const btns = document.querySelectorAll('.agent-btn');
   btns.forEach(b => { b.disabled = true; b.classList.add('running'); });
 
@@ -783,6 +854,37 @@ async function runAgent(type) {
   } finally {
     btns.forEach(b => { b.disabled = false; b.classList.remove('running'); });
   }
+}
+
+/* Task 4: Load counterparty indicators */
+async function loadCounterpartyIndicators(counterpartyName) {
+  try {
+    const r = await fetch(`/api/indicators/${encodeURIComponent(counterpartyName)}`);
+    if (!r.ok) return;
+    const d = await r.json();
+
+    // Display indicators card
+    const card = document.getElementById('indicators-card');
+    card.style.display = 'block';
+
+    document.getElementById('indicator-cp-name').textContent = d.company_name || counterpartyName;
+    document.getElementById('indicator-de').textContent = d.debt_to_equity ? d.debt_to_equity.toFixed(2) + 'x' : '—';
+    document.getElementById('indicator-margin').textContent = d.net_margin_pct ? d.net_margin_pct.toFixed(1) + '%' : '—';
+    document.getElementById('indicator-cash').textContent = d.cash_equivalents_estimate_pct ? d.cash_equivalents_estimate_pct.toFixed(1) + '%' : '—';
+    document.getElementById('indicator-deposits').textContent = d.total_deposits_usd ?
+      formatNum(d.total_deposits_usd) + ' USD' : '—';
+
+    // Try to get stock price from market agent context
+    fetchStockPrice(counterpartyName);
+  } catch(e) {
+    // Silently fail - not critical if indicators don't load
+  }
+}
+
+async function fetchStockPrice(counterpartyName) {
+  // This would typically come from the agent's research tools
+  // For now, set a placeholder
+  document.getElementById('indicator-stock').textContent = 'N/A';
 }
 
 function renderMemoCard(d) {
@@ -889,11 +991,93 @@ async function handleFile(file) {
   try {
     const r = await fetch('/api/upload', { method: 'POST', body: fd });
     const d = await r.json();
+
+    // Handle duplicate detection (202 response)
+    if (r.status === 202 && d.status === 'duplicates_detected') {
+      showDuplicateWarning(d, file.name);
+      return;
+    }
+
     if (!r.ok) { setSt(`Error: ${d.error}`, 'err'); return; }
-    setSt(`${d.ingested} record(s) ingested.`, 'ok');
+
+    const method = d.extraction_method ? ` (${d.extraction_method})` : '';
+    setSt(`${d.ingested} record(s) ingested${method}.`, 'ok');
     if (d.records) { allRows = d.records; renderTable(allRows); populateAgentDatalist(allRows); }
     setTimeout(() => { loadCounterparties(); loadStats(); }, 1500);
   } catch(e) { setSt('Upload failed.', 'err'); }
+}
+
+function showDuplicateWarning(data, filename) {
+  const stEl = document.getElementById('upload-status');
+  const detailsEl = document.querySelector('details');
+
+  let html = `
+    <div style="padding: 12px; background: #fef3c7; border: 1px solid #fcd34d; margin-bottom: 12px;">
+      <div style="font-weight: 600; color: #b45309; margin-bottom: 8px;">⚠ Duplicates Detected</div>
+      <div style="font-size: 12px; color: #78350f; margin-bottom: 12px;">
+        The following counterparties are already registered. Would you like to update them with new data?
+      </div>
+  `;
+
+  // Show duplicates
+  if (data.duplicates && data.duplicates.length > 0) {
+    html += `<div style="margin-bottom: 12px;"><strong>Existing Counterparties:</strong><ul style="margin: 4px 0 0 16px;">`;
+    data.duplicates.forEach(dup => {
+      html += `<li style="font-size: 11px;">${esc(dup.company_name)} — ${dup.action_required}</li>`;
+    });
+    html += `</ul></div>`;
+  }
+
+  // Show new data
+  if (data.records && data.records.length > 0) {
+    html += `<div style="margin-bottom: 12px;"><strong>New Data to Import:</strong><ul style="margin: 4px 0 0 16px; font-size: 11px;">`;
+    data.records.forEach(rec => {
+      html += `<li>${esc(rec.company_name)} | Revenue: $${rec.revenue_usd_m}M | D/E: ${rec.debt_to_equity}</li>`;
+    });
+    html += `</ul></div>`;
+  }
+
+  html += `
+    <div style="display: flex; gap: 8px;">
+      <button id="btn-approve-dup" style="padding: 6px 12px; background: #059669; color: white; border: none; font-size: 11px; font-weight: 600; cursor: pointer;">
+        ✓ Update Records
+      </button>
+      <button onclick="rejectDuplicate()" style="padding: 6px 12px; background: #dc2626; color: white; border: none; font-size: 11px; font-weight: 600; cursor: pointer;">
+        ✗ Cancel
+      </button>
+    </div>
+    </div>
+  `;
+
+  stEl.innerHTML = html;
+  stEl.className = 'upload-status info';
+
+  // Store data and attach click handler
+  window._pendingDuplicateData = data;
+  document.getElementById('btn-approve-dup').addEventListener('click', () => approveDuplicate(data));
+}
+
+async function approveDuplicate(data) {
+  setSt('Approving update…', 'info');
+  try {
+    const r = await fetch('/api/approve-duplicate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        records: data.records,
+        filename: data.filename
+      })
+    });
+    const d = await r.json();
+    if (!r.ok) { setSt(`Error: ${d.error}`, 'err'); return; }
+    setSt(`✓ ${d.ingested} record(s) updated.`, 'ok');
+    setTimeout(() => { loadCounterparties(); loadStats(); }, 1500);
+  } catch(e) { setSt('Update failed.', 'err'); }
+}
+
+function rejectDuplicate() {
+  setSt('Update cancelled.', 'info');
+  setTimeout(() => setSt('', ''), 2000);
 }
 
 function setSt(msg, cls) {
@@ -901,7 +1085,7 @@ function setSt(msg, cls) {
   stEl.className = 'upload-status ' + cls;
 }
 
-/* Chat */
+/* Chat - Enhanced with Deposits Context */
 async function sendChat() {
   const inp = document.getElementById('chat-input');
   const q = inp.value.trim();
@@ -909,7 +1093,21 @@ async function sendChat() {
   inp.value = '';
   addMsg('user', q);
   const lid = addMsg('ai', 'Thinking…');
+
   try {
+    // Check if user is asking for a chart
+    const askingForChart = /chart|graph|visual|plot|deposit|treasury/.test(q.toLowerCase());
+
+    if (askingForChart) {
+      // Generate chart data
+      const chartData = await fetch('/api/deposits-chart-data').then(r => r.json()).catch(() => ({}));
+      if (chartData.data && chartData.data.length > 0) {
+        updMsg(lid, `I found ${chartData.data.length} counterparties with deposits. Here's a summary:\n\n` +
+          chartData.data.map(d => `• ${d.counterparty}: $${(d.amount || 0).toLocaleString('en-US', {maximumFractionDigits:0})}M (${d.count || 0} deposits)`).join('\n'));
+        return;
+      }
+    }
+
     const r = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

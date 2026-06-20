@@ -20,6 +20,9 @@ def _cp_table() -> str:
 def _memo_table() -> str:
     return f"{_dataset()}.agent_memos"
 
+def _deposits_table() -> str:
+    return f"{_dataset()}.deposits"
+
 # Keep DATASET as a convenience alias (read lazily via property-like helper)
 DATASET = property(_dataset)
 
@@ -141,3 +144,102 @@ def get_memos(counterparty_name: str = None, agent_type: str = None) -> list[dic
     job_config = bigquery.QueryJobConfig(query_parameters=params)
     rows = list(client.query(query, job_config=job_config))
     return [dict(r) for r in rows]
+
+
+# ── Deposits & Enhanced Indicators ─────────────────────────────────────────────
+
+def get_deposits_by_counterparty(counterparty_name: str = None) -> list[dict]:
+    """Retrieve deposit records, optionally filtered by counterparty."""
+    client = get_bq_client()
+    try:
+        query = f"SELECT * FROM `{_deposits_table()}`"
+        params, conditions = [], []
+
+        if counterparty_name:
+            conditions.append("LOWER(counterparty_name) LIKE @cp")
+            params.append(bigquery.ScalarQueryParameter("cp", "STRING", f"%{counterparty_name.lower()}%"))
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY deposit_date DESC LIMIT 100"
+
+        job_config = bigquery.QueryJobConfig(query_parameters=params)
+        rows = list(client.query(query, job_config=job_config))
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def get_deposits_aggregate(counterparty_name: str = None) -> dict:
+    """Get aggregate deposit statistics for dashboard indicators."""
+    client = get_bq_client()
+    try:
+        query = f"""
+            SELECT
+                LOWER(counterparty_name) as counterparty,
+                COUNT(*) as num_deposits,
+                SUM(amount_usd) as total_deposits_usd,
+                AVG(amount_usd) as avg_deposit_usd,
+                MAX(deposit_date) as last_deposit_date
+            FROM `{_deposits_table()}`
+        """
+        params, conditions = [], []
+
+        if counterparty_name:
+            conditions.append("LOWER(counterparty_name) = LOWER(@cp)")
+            params.append(bigquery.ScalarQueryParameter("cp", "STRING", counterparty_name))
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " GROUP BY counterparty"
+
+        job_config = bigquery.QueryJobConfig(query_parameters=params)
+        rows = list(client.query(query, job_config=job_config))
+        return dict(rows[0]) if rows else {}
+    except Exception:
+        return {}
+
+
+def get_counterparty_indicators(counterparty_name: str) -> dict:
+    """Get enhanced indicators for a specific counterparty (Task 4)."""
+    cp_data = get_counterparty_detail(counterparty_name)
+    if not cp_data:
+        return {"error": "Counterparty not found"}
+
+    deposits_agg = get_deposits_aggregate(counterparty_name)
+
+    # Calculate additional metrics
+    revenue = cp_data.get("revenue_usd_m", 0)
+    ebitda = cp_data.get("ebitda_usd_m", 0)
+    net_income = cp_data.get("net_income_usd_m", 0)
+    assets = cp_data.get("total_assets_usd_m", 0)
+    debt = cp_data.get("total_debt_usd_m", 0)
+    equity = assets - debt
+
+    return {
+        "company_name": cp_data.get("company_name"),
+        "country": cp_data.get("country"),
+        "sector": cp_data.get("sector"),
+        "credit_rating": cp_data.get("credit_rating", "N/A"),
+        "period_year": cp_data.get("period_year"),
+        # Financial metrics
+        "revenue_usd_m": revenue,
+        "ebitda_usd_m": ebitda,
+        "ebitda_margin_pct": cp_data.get("ebitda_margin_pct", 0),
+        "net_income_usd_m": net_income,
+        "net_margin_pct": round((net_income / revenue * 100) if revenue else 0, 2),
+        # Balance sheet
+        "total_assets_usd_m": assets,
+        "total_debt_usd_m": debt,
+        "equity_usd_m": equity,
+        # Leverage & liquidity
+        "debt_to_equity": cp_data.get("debt_to_equity", 0),
+        "debt_to_assets": round(debt / assets if assets > 0 else 0, 2),
+        "current_ratio": cp_data.get("current_ratio", 0),
+        # Cash equivalents (approximation)
+        "cash_equivalents_estimate_pct": round(100 / cp_data.get("current_ratio", 1.0), 2),
+        # Deposits
+        "total_deposits_usd": deposits_agg.get("total_deposits_usd", 0),
+        "num_deposits": deposits_agg.get("num_deposits", 0),
+        "last_deposit_date": str(deposits_agg.get("last_deposit_date", "N/A")),
+    }
