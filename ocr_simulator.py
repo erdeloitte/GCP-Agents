@@ -49,17 +49,55 @@ for _canon, _variants in _ALIASES.items():
 
 
 def simulate_ocr(content: bytes, filename: str = "") -> list[dict]:
-    """Parse a financial document into a list of counterparty records."""
+    """Parse a financial document into a list of counterparty records.
+
+    Returns empty list if:
+    - No data can be extracted
+    - Only "Unknown" company names extracted
+    - Insufficient financial data detected (triggers Claude fallback)
+    """
     if filename.lower().endswith(".xlsx"):
         records = _try_xlsx(content)
-        if records:
+        if records and _has_valid_data(records):
             return records
 
     text = content.decode(errors="ignore").strip()
     records = _try_csv(text)
-    if records:
+    if records and _has_valid_data(records):
         return records
-    return _heuristic_extract(text)
+
+    # Try heuristic extraction
+    records = _heuristic_extract(text)
+
+    # If heuristic only found "Unknown" or has no real financial data, return empty
+    # This will trigger Claude enhancement in the caller
+    if not records or not _has_valid_data(records):
+        return []
+
+    return records
+
+
+def _has_valid_data(records: list) -> bool:
+    """Check if records have meaningful data (not just "Unknown" and zeros)."""
+    if not records:
+        return False
+
+    for rec in records:
+        # Skip if company name is Unknown
+        if rec.get("company_name", "").lower() in ("unknown", ""):
+            continue
+
+        # Check if has meaningful financial data
+        has_revenue = rec.get("revenue_usd_m", 0) > 0
+        has_ebitda = rec.get("ebitda_usd_m", 0) > 0
+        has_assets = rec.get("total_assets_usd_m", 0) > 0
+        has_debt = rec.get("total_debt_usd_m", 0) > 0
+
+        # Valid if has at least 2 financial metrics
+        if sum([has_revenue, has_ebitda, has_assets, has_debt]) >= 2:
+            return True
+
+    return False
 
 
 # ── XLSX ─────────────────────────────────────────────────────────────────────
@@ -85,7 +123,9 @@ def _try_xlsx(content: bytes) -> list[dict]:
                     d = _normalise_row(row.to_dict())
                     if d["company_name"] not in ("Unknown", "", "nan"):
                         records.append(d)
-                if records:
+
+                # Only return if records have meaningful data
+                if records and _has_valid_data(records):
                     return records
     except Exception:
         pass
@@ -128,6 +168,11 @@ def _try_csv(text: str) -> list[dict]:
             d = _normalise_row(row)
             if d["company_name"] not in ("Unknown", "", "nan"):
                 records.append(d)
+
+        # Only return if we have valid records with data
+        if not records or not _has_valid_data(records):
+            return []
+
         return records
     except Exception:
         return []
