@@ -1,12 +1,22 @@
+# Web Server & API
 Flask
-google-genai
-google-cloud-bigquery
-google-cloud-storage
+gunicorn
+requests
 python-dotenv
+
+# AI & LLM Frameworks
+google-genai
+crewai
+crewai-tools
+langchain
+pydantic
+
+# Data Processing & Finance
 pandas
 openpyxl
-requests
 yfinance
-pydantic
-langchain
-gunicorn
+tavily-python
+
+# Google Cloud Platform
+google-cloud-bigquery
+google-cloud-storage

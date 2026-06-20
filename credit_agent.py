@@ -4,7 +4,9 @@ Credit Risk Agent — LNG trader perspective.
 Assesses a counterparty's creditworthiness, leverage, and debt serviceability.
 Recommends a credit limit and payment terms for LNG trading agreements.
 """
-from agent_base import call_gemini, build_memo_record, save_memo
+from agent_base import build_memo_record, save_memo, call_gemini
+from crewai import Agent, Task, Crew, Process, LLM
+from crewai_tools import ScrapeWebsiteTool, TavilySearchTool
 
 
 SYSTEM_CONTEXT = """\
@@ -36,7 +38,33 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
         "Write the memo now."
     )
 
-    raw = call_gemini(prompt, temperature=0.2)
+    llm = LLM(model="gemini/gemini-3.5-flash", temperature=1)
+    search_tool = TavilySearchTool()
+    scrape_tool = ScrapeWebsiteTool()
+
+    credit_analyst = Agent(
+        role="Senior Credit Analyst",
+        goal=f"Assess creditworthiness and debt serviceability for {counterparty_name}.",
+        backstory=SYSTEM_CONTEXT,
+        tools=[search_tool, scrape_tool],
+        llm=llm,
+        verbose=True
+    )
+
+    credit_task = Task(
+        description=(
+            f"Check Yahoo Finance or Investing.com for news on {counterparty_name}'s recent credit events, rating updates, or debt issuances. "
+            f"Evaluate leverage and EBITDA coverage using this financial data: {data_block}. "
+            "Write a quantitative internal credit memo including risk level, limit, and payment terms."
+        ),
+        expected_output="A quantitative internal credit memo with risk level and credit limit.",
+        agent=credit_analyst
+    )
+
+    crew = Crew(agents=[credit_analyst], tasks=[credit_task], process=Process.sequential)
+    result = crew.kickoff()
+    raw = str(result.raw)
+
     risk_level, credit_limit, payment_terms = _parse_verdict(raw)
     memo_text = _strip_verdict_lines(raw)
     exposure_proposal = f"{credit_limit} | {payment_terms}"
