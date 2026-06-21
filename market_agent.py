@@ -7,6 +7,7 @@ trading exposure limit.
 
 """
 from agent_base import call_gemini, build_memo_record, save_memo
+from risk_scorer import RiskScorer
 from pydantic import BaseModel
 import os
 from dotenv import load_dotenv
@@ -67,6 +68,20 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
     risk_level, exposure = _parse_verdict(raw)
     memo_text = _strip_verdict_lines(raw)
 
+    # Calculate risk score based on financial data
+    risk_score_result = RiskScorer.calculate_score(
+        company_name=counterparty_name,
+        country=financial_data.get("country", ""),
+        sector=financial_data.get("sector", ""),
+        credit_rating=financial_data.get("credit_rating", "N/A"),
+        debt_to_equity=financial_data.get("debt_to_equity", 0),
+        current_ratio=financial_data.get("current_ratio", 1.0),
+        ebitda_margin_pct=financial_data.get("ebitda_margin_pct", 0),
+        revenue_usd_m=financial_data.get("revenue_usd_m", 0),
+        total_debt_usd_m=financial_data.get("total_debt_usd_m", 0),
+        is_public=_is_public_company(counterparty_name),
+    )
+
     record = build_memo_record(
         counterparty=counterparty_name,
         agent_type="market",
@@ -77,6 +92,8 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
     record["search_queries"] = getattr(raw, "search_queries", [])
     record["search_sources"] = getattr(raw, "search_sources", [])
     record["tool_calls"] = getattr(raw, "tool_calls", [])
+    record["risk_score"] = risk_score_result["score"]
+    record["risk_score_breakdown"] = risk_score_result["breakdown"]
     save_memo(record)
     return record
 
@@ -114,3 +131,30 @@ def _strip_verdict_lines(text: str) -> str:
     lines = [l for l in text.splitlines()
              if not l.startswith("RISK_LEVEL:") and not l.startswith("EXPOSURE_LIMIT:")]
     return "\n".join(lines).strip()
+
+
+def _is_public_company(name: str) -> bool:
+    """Determine if company is likely public based on name patterns."""
+    name_lower = (name or "").lower()
+
+    # Known private trading companies
+    private_companies = [
+        "vitol", "trafigura", "louis dreyfus", "gunvor",
+        "mercuria", "glencore", "noble", "cargill", "archer daniels",
+        "privately held", "private"
+    ]
+
+    # Check if matches private company list
+    if any(p in name_lower for p in private_companies):
+        # Note: Glencore is actually public but check news for confirmation
+        if "glencore" in name_lower:
+            return True
+        return False
+
+    # Check for public indicators
+    public_indicators = ["plc", "inc.", "corp.", "ag", "ag "]
+    if any(p in name_lower for p in public_indicators):
+        return True
+
+    # Default: assume public if not in known private list
+    return True

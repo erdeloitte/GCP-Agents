@@ -889,6 +889,19 @@ async function fetchStockPrice(counterpartyName) {
 
 function renderMemoCard(d) {
   const rl = d.risk_level || 'MEDIUM';
+  const riskColors = {
+    'LOW': '#059669',
+    'MEDIUM': '#b45309',
+    'HIGH': '#dc2626',
+    'CRITICAL': '#7f1d1d'
+  };
+  const riskBgColors = {
+    'LOW': '#f0fdf4',
+    'MEDIUM': '#fffbeb',
+    'HIGH': '#fef2f2',
+    'CRITICAL': '#fee2e2'
+  };
+
   let sourcesHtml = '';
   
   const hasQueries = d.search_queries && d.search_queries.length > 0;
@@ -943,14 +956,25 @@ function renderMemoCard(d) {
     `;
   }
 
-  return `<div class="memo-card">
+  // Add traffic light visual
+  const trafficLight = `
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <div style="width: 16px; height: 16px; border-radius: 50%; background: ${riskColors[rl]}; box-shadow: 0 0 8px ${riskColors[rl]}20;"></div>
+      <span style="font-size: 11px; color: ${riskColors[rl]}; font-weight: 700;">${rl}</span>
+    </div>
+  `;
+
+  return `<div class="memo-card" style="border-left: 4px solid ${riskColors[rl]}; background: ${riskBgColors[rl]}20;">
     <div class="memo-header">
       <span class="memo-agent-label">${esc((d.agent_type || '').toUpperCase())} Agent</span>
-      <span class="risk-badge risk-${rl}">${rl}</span>
+      ${trafficLight}
       <span class="memo-counterparty">${esc(d.counterparty_name || '')}</span>
     </div>
     <div class="memo-text">${esc(d.memo || '').replace(/\n/g,'<br>')}</div>
     <div class="memo-proposal">${esc(d.exposure_proposal || '')}</div>
+    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0,0,0,0.1); font-size: 10px; color: var(--text-dim);">
+      <strong>Model:</strong> Gemini 3.5 Flash | <strong>Risk Score:</strong> ${d.risk_score || 'N/A'}/100
+    </div>
     ${sourcesHtml}
   </div>`;
 }
