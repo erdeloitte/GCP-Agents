@@ -30,6 +30,7 @@ app = Flask(
     static_url_path=''
 )
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 
 @app.errorhandler(Exception)
@@ -102,6 +103,7 @@ def api_stats():
 @app.route("/api/upload", methods=["POST"])
 def api_upload():
     from ocr_simulator import simulate_ocr
+    from claude_ocr_enhance import claude_ocr_fallback
     from bigquery_helper import insert_counterparty
     from datetime import datetime, timezone
 
@@ -117,6 +119,10 @@ def api_upload():
         records = simulate_ocr(content, filename=file.filename)
     except Exception as e:
         return jsonify({"error": f"Could not parse file: {e}"}), 422
+
+    # Fallback to Claude if standard OCR fails to find data
+    if not records:
+        records = claude_ocr_fallback(content, file.filename, []).get("records", [])
 
     if not records:
         return jsonify({"error": "No records extracted. Check the file has the required columns."}), 422
@@ -173,8 +179,8 @@ def api_chat():
             context += f"\n\nExternal Live Market Context:\n{market_context}"
 
     prompt  = (
-        "You are a treasury and commodity trading analyst assistant. "
-        "Answer the user's question. Use the provided database context to answer questions about the portfolio counterparties, "
+        "You are a treasury and commodity trading senior analyst. "
+        "Answer the user's question. Use the provided database context to answer questions about the counterparties, "
         "and utilize your web search grounding tool to lookup any live stock prices, news, external financials, or general industry trends. "
         "Be quantitative, concise, professional, and flag any credit or liquidity risks.\n\n"
         f"DATA:\n{context}\n\nQUESTION: {question}"
@@ -255,7 +261,7 @@ def api_agent_orchestrate():
 
     summary_prompt = (
         "You are a head of treasury at an LNG trading company. "
-        "Synthesise the three specialist memos below into a single executive summary (6–8 sentences). "
+        "Synthesise the three specialist memos below into an executive summary (6–8 sentences). "
         "Conclude with a clear recommendation: approve / approve with conditions / decline.\n\n"
         f"COUNTERPARTY: {canonical}\n\n"
         f"MARKET AGENT:\n{market['memo']}\nExposure: {market['exposure_proposal']}\n\n"

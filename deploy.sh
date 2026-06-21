@@ -10,6 +10,9 @@
 #   BUCKET        – Cloud Storage bucket     (e.g. treasury_comm_agent)
 #   BQ_DATASET    – BigQuery dataset         (e.g. treasury_analytics)
 #   GEMINI_API_KEY – Google AI Studio key   (free tier at aistudio.google.com)
+#   ANTHROPIC_API_KEY
+#   TAVILY_API_KEY
+
 
 set -euo pipefail
 
@@ -21,10 +24,13 @@ export SERVICE_NAME="${SERVICE_NAME:-treasury-ingestor}"
 export DASH_SERVICE="${DASH_SERVICE:-treasury-dashboard}"
 export BQ_DATASET="${BQ_DATASET:-treasury_analytics}"
 export GEMINI_API_KEY="${GEMINI_API_KEY:-}"
+export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
+export TAVILY_API_KEY="${TAVILY_API_KEY:-}"
+
 
 
 # ── Validate ─────────────────────────────────────────────────────────
-for var in PROJECT_ID REGION SERVICE_NAME DASH_SERVICE BUCKET BQ_DATASET; do
+for var in PROJECT_ID REGION SERVICE_NAME DASH_SERVICE BUCKET BQ_DATASET ANTHROPIC_API_KEY; do
   if [[ -z "${!var:-}" ]]; then
     echo "ERROR: $var is not set. Export it before running ./deploy.sh"; exit 1
   fi
@@ -93,7 +99,7 @@ gcloud run deploy "${SERVICE_NAME}" \
   --region "${REGION}" \
   --platform managed \
   --allow-unauthenticated \
-  --set-env-vars "BUCKET=${BUCKET},BQ_DATASET=${BQ_DATASET}"
+  --set-env-vars "BUCKET=${BUCKET},BQ_DATASET=${BQ_DATASET},ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"
 
 INGESTOR_URL=$(gcloud run services describe "${SERVICE_NAME}" \
   --project "${PROJECT_ID}" --region "${REGION}" \
@@ -137,7 +143,7 @@ gcloud run deploy "${DASH_SERVICE}" \
   --region "${REGION}" \
   --platform managed \
   --allow-unauthenticated \
-  --set-env-vars "BQ_DATASET=${BQ_DATASET},GEMINI_API_KEY=${GEMINI_API_KEY}"
+  --set-env-vars "BQ_DATASET=${BQ_DATASET},GEMINI_API_KEY=${GEMINI_API_KEY},ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"
 
 DASH_URL=$(gcloud run services describe "${DASH_SERVICE}" \
   --project "${PROJECT_ID}" --region "${REGION}" \
