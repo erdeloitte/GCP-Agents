@@ -23,7 +23,6 @@ Calculates a 0-100 risk score based on:
    - Ownership concentration
    - Regulatory risk
 """
-import math
 from typing import Optional
 
 
@@ -251,16 +250,27 @@ class RiskScorer:
         # Public companies are generally lower risk
         public_score = 0.2 if is_public else 0.5
 
-        # Country risk (simplified)
+        # Country risk — expanded to cover LNG-relevant jurisdictions
         country_lower = (country or "").lower()
-        country_risk = 0.3  # Default low country risk
+        country_risk = 0.2  # Default low-to-medium risk
 
-        high_risk_countries = [
-            "venezuela", "yemen", "syria", "sudan", "somalia",
-            "liberia", "central african republic"
+        critical_risk_countries = [
+            # Sanctioned / embargoed
+            "iran", "north korea", "dprk", "russia", "belarus",
+            "myanmar", "cuba", "syria", "sudan",
+            # High-risk / conflict zones
+            "venezuela", "yemen", "somalia", "libya", "mali",
+            "central african republic", "south sudan",
+            "liberia",
         ]
-        if any(c in country_lower for c in high_risk_countries):
-            country_risk = 0.8
+        elevated_risk_countries = [
+            "iraq", "nigeria", "angola", "congo", "cameroon",
+            "kazakhstan", "turkmenistan", "azerbaijan",
+        ]
+        if any(c in country_lower for c in critical_risk_countries):
+            country_risk = 0.9
+        elif any(c in country_lower for c in elevated_risk_countries):
+            country_risk = 0.55
 
         # Debt size risk (larger debts = more risk to manage)
         if total_debt <= 100:
