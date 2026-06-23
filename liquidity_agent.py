@@ -98,6 +98,7 @@ def _format_data(d: dict) -> str:
 
 def _parse_verdict(text: str) -> tuple[str, str]:
     risk, settlement = "MEDIUM", "LC Required"
+    risk, settlement = "MEDIUM", "Awaiting Settlement Terms"
     for line in text.splitlines():
         if line.startswith("RISK_LEVEL:"):
             val = line.split(":", 1)[1].strip().upper()

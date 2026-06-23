@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 load_dotenv()  # must be before any local imports that read os.getenv at module level
 
 from flask import Flask, render_template, request, jsonify
+from werkzeug.exceptions import HTTPException
 from bigquery_helper import (
     get_counterparties, get_summary_stats, build_llm_context,
     get_counterparty_detail, get_memos,
@@ -46,6 +47,11 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 @app.errorhandler(Exception)
 def handle_exception(e):
     """Generic error handler — returns a safe message without internal details."""
+    # Let standard HTTP errors (like 404 or 405) be handled normally by Flask
+    # rather than logging them as unhandled application crashes (500).
+    if isinstance(e, HTTPException):
+        return e
+
     logger.exception("Unhandled exception in request %s %s", request.method, request.path)
     return jsonify({"error": "An internal error occurred. Please try again or contact support."}), 500
 
@@ -93,9 +99,15 @@ def _serialise(rows: list[dict]) -> list[dict]:
 
 # ── Core routes ───────────────────────────────────────────────────────────────
 
-@app.route("/")
+@app.route("/", methods=["GET"])
 def index():
     return render_template("dashboard.html")
+
+
+@app.route("/favicon.ico")
+def favicon():
+    """Explicitly handle favicon requests to avoid 404 noise."""
+    return "", 204
 
 
 @app.route("/api/counterparties")
@@ -110,6 +122,49 @@ def api_counterparties():
 @app.route("/api/stats")
 def api_stats():
     return jsonify(get_summary_stats())
+
+
+@app.route("/ingest", methods=["POST"])
+def api_pubsub_ingest():
+    """Background ingestion handler triggered by Pub/Sub."""
+    import base64
+    import json
+    from cloud_storage_helper import download_blob
+    from ocr_simulator import simulate_ocr
+    from bigquery_helper import insert_counterparty
+    from datetime import datetime, timezone
+
+    envelope = request.get_json()
+    if not envelope or "message" not in envelope:
+        return "Invalid Pub/Sub message", 400
+
+    pubsub_message = envelope["message"]
+    if "data" not in pubsub_message:
+        return "No data in message", 400
+
+    try:
+        # Decode GCS notification payload
+        data_str = base64.b64decode(pubsub_message["data"]).decode("utf-8")
+        data = json.loads(data_str)
+        filename = data.get("name")
+
+        if not filename:
+            return "OK", 200
+
+        logger.info(f"Background processing started for: {filename}")
+        content = download_blob(filename)
+        records = simulate_ocr(content, filename=filename)
+
+        now = datetime.now(timezone.utc).isoformat()
+        for r in records:
+            r["document_name"] = filename
+            r["upload_date"]   = now
+            insert_counterparty(r)
+
+        return "OK", 200
+    except Exception as e:
+        logger.error(f"Background ingestion error: {e}")
+        return f"Error: {e}", 500
 
 
 @app.route("/api/upload", methods=["POST"])

@@ -246,7 +246,6 @@
       font-family: 'Courier New', monospace;
       padding: 10px 12px;
       background: var(--gray-50);
-      border-left: 3px solid var(--deloitte-green);
     }
 
     .exec-summary {
@@ -964,7 +963,7 @@ function renderMemoCard(d) {
     </div>
   `;
 
-  return `<div class="memo-card" style="border-left: 4px solid ${riskColors[rl]}; background: ${riskBgColors[rl]}20;">
+  return `<div class="memo-card" style="background: ${riskBgColors[rl]}20;">
     <div class="memo-header">
       <span class="memo-agent-label">${esc((d.agent_type || '').toUpperCase())} Agent</span>
       ${trafficLight}

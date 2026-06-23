@@ -28,7 +28,7 @@ Always use these tools to research the counterparty's recent activities, busines
 
 CRITICAL INSTRUCTION: Your memo must be highly specific, quantitative, and factual. You MUST incorporate exact details of recent news, financial transactions, acquisitions, joint ventures, or key corporate statements discovered during your web search (including details like specific companies acquired, specific projects like Baleine, and dates like 2025/2026). Do NOT make generic summaries or general statements like "we found news about acquisitions". Name the specific news events, companies, and statistics you found online. If you look up stock prices, cite the exact stock price and listing exchange in the memo.
 
-Write a detailed, analytical internal memo (6–10 sentences) covering:
+Write a detailed, analytical internal memo (6–10 sentences) as a cohesive professional narrative. Do NOT include sentence numbers, labels (like "1.", "2.", or "Sentence X:"), or internal reasoning/thought headers. The memo should flow naturally and cover:
 1. Revenue quality, commodity price sensitivity, and business model
 2. Sector and geographic concentration risk (incorporate recent news, acquisitions, and expansions from your search results)
 3. EBITDA margin and cash buffers against price volatility
@@ -112,7 +112,7 @@ def _format_data(d: dict) -> str:
 
 
 def _parse_verdict(text: str) -> tuple[str, str]:
-    risk, exposure = "MEDIUM", "Pending assessment"
+    risk, exposure = "MEDIUM", "Pending exposure assessment"
     for line in text.splitlines():
         if line.startswith("RISK_LEVEL:"):
             val = line.split(":", 1)[1].strip().upper()

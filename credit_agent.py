@@ -51,7 +51,7 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
             from crewai import Agent, Task, Crew, Process, LLM
             from crewai_tools import ScrapeWebsiteTool, TavilySearchTool
 
-            llm = LLM(model="gemini/gemini-2.0-flash", temperature=0.3)
+            llm = LLM(model="gemini/gemini-3.5-flash", temperature=0.3)
             search_tool = TavilySearchTool()
             scrape_tool = ScrapeWebsiteTool()
 
