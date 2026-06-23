@@ -23,8 +23,12 @@ def _memo_table() -> str:
 def _deposits_table() -> str:
     return f"{_dataset()}.deposits"
 
-# Keep DATASET as a convenience alias (read lazily via property-like helper)
-DATASET = property(_dataset)
+# Remove the broken module-level property() — properties only work as class
+# descriptors. Use _dataset() directly everywhere.
+# DATASET alias kept for backward-compat as a plain string evaluated lazily.
+def _get_dataset() -> str:
+    """Return the BQ dataset name from the environment (lazy, per-call)."""
+    return _dataset()
 
 
 def get_bq_client() -> bigquery.Client:
@@ -80,16 +84,26 @@ def get_counterparty_detail(counterparty_name: str) -> dict | None:
 
 
 def get_summary_stats() -> dict:
-    """Return aggregate KPIs across all counterparties for the dashboard header."""
+    """Return aggregate KPIs across all counterparties (latest record per company)."""
     client = get_bq_client()
+    # Use a subquery to deduplicate: take only the most recent upload per company.
     query  = f"""
+        WITH latest AS (
+            SELECT *,
+                ROW_NUMBER() OVER (
+                    PARTITION BY LOWER(company_name)
+                    ORDER BY upload_date DESC
+                ) AS rn
+            FROM `{_cp_table()}`
+        )
         SELECT
-            COUNT(DISTINCT company_name)        AS total_counterparties,
-            ROUND(AVG(ebitda_margin_pct), 1)    AS avg_ebitda_margin,
-            ROUND(AVG(debt_to_equity), 2)       AS avg_debt_to_equity,
-            ROUND(AVG(current_ratio), 2)        AS avg_current_ratio,
-            ROUND(SUM(revenue_usd_m), 1)        AS total_revenue_usd_m
-        FROM `{_cp_table()}`
+            COUNT(DISTINCT LOWER(company_name))  AS total_counterparties,
+            ROUND(AVG(ebitda_margin_pct), 1)     AS avg_ebitda_margin,
+            ROUND(AVG(debt_to_equity), 2)        AS avg_debt_to_equity,
+            ROUND(AVG(current_ratio), 2)         AS avg_current_ratio,
+            ROUND(SUM(revenue_usd_m), 1)         AS total_revenue_usd_m
+        FROM latest
+        WHERE rn = 1
     """
     rows = list(client.query(query))
     return dict(rows[0]) if rows else {}
@@ -115,10 +129,33 @@ def build_llm_context(company_name: str = None) -> str:
 # ── Agent Memos ───────────────────────────────────────────────────────────────
 
 def save_memo(record: dict) -> None:
-    """Persist an agent memo to the agent_memos table."""
+    """Persist an agent memo to the agent_memos table.
+
+    Columns beyond the core 7 are serialised to JSON strings so they can be
+    stored in STRING columns without a schema change.  Structured objects
+    (dicts, lists) are converted via json.dumps.
+    """
+    import json
     client = get_bq_client()
-    allowed_keys = {"id", "counterparty_name", "agent_type", "risk_level", "memo", "exposure_proposal", "created_at"}
-    clean_record = {k: v for k, v in record.items() if k in allowed_keys}
+    # Core columns that every agent always populates
+    core_keys = {"id", "counterparty_name", "agent_type", "risk_level",
+                 "memo", "exposure_proposal", "created_at"}
+    # Extended columns — stored as JSON strings in STRING BQ columns
+    extended_keys = {
+        "credit_limit", "payment_terms", "settlement_terms",
+        "risk_score", "risk_score_breakdown",
+        "search_queries", "search_sources", "tool_calls",
+    }
+    allowed = core_keys | extended_keys
+    clean_record = {}
+    for k, v in record.items():
+        if k not in allowed:
+            continue
+        # Serialise non-scalar values to JSON strings for BQ STRING columns
+        if isinstance(v, (dict, list)):
+            clean_record[k] = json.dumps(v)
+        else:
+            clean_record[k] = v
     errors = client.insert_rows_json(_memo_table(), [clean_record])
     if errors:
         raise RuntimeError(f"BigQuery memo insert errors: {errors}")
@@ -236,8 +273,13 @@ def get_counterparty_indicators(counterparty_name: str) -> dict:
         "debt_to_equity": cp_data.get("debt_to_equity", 0),
         "debt_to_assets": round(debt / assets if assets > 0 else 0, 2),
         "current_ratio": cp_data.get("current_ratio", 0),
-        # Cash equivalents (approximation)
-        "cash_equivalents_estimate_pct": round(100 / cp_data.get("current_ratio", 1.0), 2),
+        # Working capital liquidity indicator:
+        # current_ratio = current_assets / current_liabilities
+        # (current_ratio - 1) * 100 gives surplus current assets as % of liabilities;
+        # clamped to [0, 100] for display purposes.
+        "working_capital_coverage_pct": round(
+            max(min((cp_data.get("current_ratio", 1.0) - 1.0) * 100, 100), 0), 2
+        ),
         # Deposits
         "total_deposits_usd": deposits_agg.get("total_deposits_usd", 0),
         "num_deposits": deposits_agg.get("num_deposits", 0),

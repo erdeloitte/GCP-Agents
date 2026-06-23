@@ -5,6 +5,7 @@ Assesses a counterparty's ability to settle LNG trades on time.
 Focuses on short-term liquidity, working capital, and operational cash flow.
 """
 from agent_base import call_gemini, build_memo_record, save_memo
+from risk_scorer import RiskScorer
 
 
 SYSTEM_CONTEXT = """\
@@ -39,6 +40,19 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
     risk_level, settlement = _parse_verdict(raw)
     memo_text = _strip_verdict_lines(raw)
 
+    # Calculate quantitative risk score (consistent across all agents)
+    risk_score_result = RiskScorer.calculate_score(
+        company_name=counterparty_name,
+        country=financial_data.get("country", ""),
+        sector=financial_data.get("sector", ""),
+        credit_rating=financial_data.get("credit_rating", "N/A"),
+        debt_to_equity=financial_data.get("debt_to_equity", 0),
+        current_ratio=financial_data.get("current_ratio", 1.0),
+        ebitda_margin_pct=financial_data.get("ebitda_margin_pct", 0),
+        revenue_usd_m=financial_data.get("revenue_usd_m", 0),
+        total_debt_usd_m=financial_data.get("total_debt_usd_m", 0),
+    )
+
     record = build_memo_record(
         counterparty=counterparty_name,
         agent_type="liquidity",
@@ -46,15 +60,26 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
         memo=memo_text,
         exposure_proposal=f"Settlement: {settlement}",
     )
-    record["settlement_terms"] = settlement
+    record["settlement_terms"]       = settlement
+    record["risk_score"]             = risk_score_result["score"]
+    record["risk_score_breakdown"]   = risk_score_result["breakdown"]
+    record["search_queries"]         = getattr(raw, "search_queries", [])
+    record["search_sources"]         = getattr(raw, "search_sources", [])
+    record["tool_calls"]             = getattr(raw, "tool_calls", [])
     save_memo(record)
     return record
 
 
 def _format_data(d: dict) -> str:
-    assets = d.get("total_assets_usd_m", 0) or 0
-    debt   = d.get("total_debt_usd_m", 0) or 0
-    equity = assets - debt
+    assets         = d.get("total_assets_usd_m", 0) or 0
+    debt           = d.get("total_debt_usd_m", 0) or 0
+    de_ratio       = d.get("debt_to_equity", 0) or 0
+    # Equity (est.) derived from D/E ratio: Equity = Debt / D/E when D/E > 0,
+    # else fall back to Assets - Debt as a rough approximation.
+    if de_ratio > 0 and debt > 0:
+        equity = round(debt / de_ratio, 1)
+    else:
+        equity = max(assets - debt, 0)  # lower-bound at 0
     return (
         f"  Sector:          {d.get('sector', 'N/A')}\n"
         f"  Country:         {d.get('country', 'N/A')}\n"

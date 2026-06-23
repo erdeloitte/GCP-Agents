@@ -8,12 +8,8 @@ trading exposure limit.
 """
 from agent_base import call_gemini, build_memo_record, save_memo
 from risk_scorer import RiskScorer
-from pydantic import BaseModel
 import os
 from dotenv import load_dotenv
-import langchain
-
-langchain.debug = False
 
 load_dotenv()
   
@@ -64,7 +60,7 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
         "Write the memo now."
     )
 
-    raw = call_gemini(prompt, temperature=1)
+    raw = call_gemini(prompt, temperature=0.4)
     risk_level, exposure = _parse_verdict(raw)
     memo_text = _strip_verdict_lines(raw)
 
@@ -140,19 +136,18 @@ def _is_public_company(name: str) -> bool:
     # Known private trading companies
     private_companies = [
         "vitol", "trafigura", "louis dreyfus", "gunvor",
-        "mercuria", "glencore", "noble", "cargill", "archer daniels",
-        "privately held", "private"
+        "mercuria", "noble", "cargill", "archer daniels",
+        "privately held", "private",
     ]
 
-    # Check if matches private company list
     if any(p in name_lower for p in private_companies):
-        # Note: Glencore is actually public but check news for confirmation
+        # Note: Glencore is public (LSE: GLEN) — explicitly carve out
         if "glencore" in name_lower:
             return True
         return False
 
-    # Check for public indicators
-    public_indicators = ["plc", "inc.", "corp.", "ag", "ag "]
+    # Check for public company legal-form indicators (word-boundary safe)
+    public_indicators = ["plc", "inc.", "corp.", " ag", " se", " sa", " nv"]
     if any(p in name_lower for p in public_indicators):
         return True
 

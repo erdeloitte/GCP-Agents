@@ -3,13 +3,30 @@ Shared utilities for all treasury agents: Gemini caller and BQ memo persistence.
 """
 import os
 import uuid
+import logging
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 import yfinance as yf
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL   = "gemini-2.0-flash"
+
+# ---------------------------------------------------------------------------
+# Module-level Gemini client singleton — created once, reused across calls.
+# ---------------------------------------------------------------------------
+_gemini_client = None
+
+def _get_gemini_client():
+    """Return (or lazily create) the shared Gemini SDK client."""
+    global _gemini_client
+    if _gemini_client is None:
+        from google import genai
+        _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+    return _gemini_client
 
 
 class AgentResponse(str):
@@ -21,16 +38,38 @@ class AgentResponse(str):
         return obj
 
 
+# Canonical ticker mapping — single source of truth used by both agent_base and market_data_helper.
+TICKER_MAP: dict[str, str] = {
+    "glencore":      "GLEN.L",
+    "shell":         "SHEL",
+    "totalenergies": "TTE",
+    "total energies": "TTE",
+    "bp":            "BP",
+    "chevron":       "CVX",
+    "vitol":         "PRIVATE",
+    "trafigura":     "PRIVATE",
+    "gunvor":        "PRIVATE",
+    "mercuria":      "PRIVATE",
+    "louis dreyfus": "PRIVATE",
+    "cargill":       "PRIVATE",
+    "exxon":         "XOM",
+    "exxonmobil":    "XOM",
+    "conocophillips": "COP",
+    "equinor":       "EQNR",
+    "eni":           "E",
+}
+
+
 def _resolve_ticker(ticker_or_name: str) -> str:
-    """Internal helper to map common company names to tickers."""
-    mapping = {
-        "glencore": "GLEN.L",
-        "shell": "SHEL",
-        "totalenergies": "TTE",
-        "bp": "BP",
-        "chevron": "CVX",
-    }
-    return mapping.get(ticker_or_name.lower().strip(), ticker_or_name.upper().strip())
+    """Map common company names to stock tickers."""
+    key = ticker_or_name.lower().strip()
+    # Try exact match first, then partial match
+    if key in TICKER_MAP:
+        return TICKER_MAP[key]
+    for name, ticker in TICKER_MAP.items():
+        if name in key:
+            return ticker
+    return ticker_or_name.upper().strip()
 
 
 def get_headlines_tool(ticker_or_name: str) -> str:
@@ -75,17 +114,16 @@ def get_stock_price_tool(ticker_or_name: str) -> str:
 
 
 def call_gemini(prompt: str, temperature: float = 0.3) -> str:
-    """Call Gemini 3.5 Flash and return the text response (as AgentResponse)."""
+    """Call Gemini and return the text response (as AgentResponse)."""
     if not GEMINI_API_KEY:
         return AgentResponse("ERROR: GEMINI_API_KEY not set.")
     try:
-        from google import genai
         from google.genai import types
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        
+        client = _get_gemini_client()
+
         # Automatic function calling is enabled by default when tools are provided in a Chat session.
         chat = client.chats.create(
-            model="gemini-3.5-flash",
+            model=GEMINI_MODEL,
             config=types.GenerateContentConfig(
                 tools=[{"google_search": {}}, get_headlines_tool, get_stock_price_tool],
                 tool_config=types.ToolConfig(
@@ -154,11 +192,10 @@ def call_gemini(prompt: str, temperature: float = 0.3) -> str:
 def save_memo(record: dict) -> None:
     """Persist an agent memo to BigQuery. Non-fatal if BQ is unavailable."""
     try:
-        from bigquery_helper import get_bq_client, _memo_table
-        client = get_bq_client()
-        client.insert_rows_json(_memo_table(), [record])
-    except Exception:
-        pass
+        from bigquery_helper import save_memo as bq_save_memo
+        bq_save_memo(record)
+    except Exception as exc:
+        logger.warning("save_memo: BigQuery write failed — %s", exc)
 
 
 def build_memo_record(

@@ -14,6 +14,8 @@ Endpoints:
   GET  /api/memos             – Retrieve saved agent memos
 """
 import os
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 load_dotenv()  # must be before any local imports that read os.getenv at module level
 
@@ -23,20 +25,29 @@ from bigquery_helper import (
     get_counterparty_detail, get_memos,
 )
 
+# ---- Agent modules imported at module level to avoid per-request overhead ----
+import market_agent
+import credit_agent
+import liquidity_agent
+from agent_base import call_gemini, build_memo_record, save_memo
+
+logger = logging.getLogger(__name__)
+
 app = Flask(
     __name__,
     template_folder=os.path.dirname(os.path.abspath(__file__)),
     static_folder=os.path.dirname(os.path.abspath(__file__)),
     static_url_path=''
 )
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_API_KEY   = os.getenv("GEMINI_API_KEY", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 
 @app.errorhandler(Exception)
 def handle_exception(e):
-    import traceback
-    return jsonify({"error": str(e), "detail": traceback.format_exc()}), 500
+    """Generic error handler — returns a safe message without internal details."""
+    logger.exception("Unhandled exception in request %s %s", request.method, request.path)
+    return jsonify({"error": "An internal error occurred. Please try again or contact support."}), 500
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -47,9 +58,10 @@ def _gemini(prompt: str, temperature: float = 0.3) -> str:
     try:
         from google import genai
         from google.genai import types
+        from agent_base import GEMINI_MODEL
         client = genai.Client(api_key=GEMINI_API_KEY)
         response = client.models.generate_content(
-            model="gemini-3.5-flash",
+            model=GEMINI_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
                 tools=[{"google_search": {}}],
@@ -206,7 +218,6 @@ def api_agent_market():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    import market_agent
     result = market_agent.run(canonical, data)
     return jsonify(result)
 
@@ -219,7 +230,6 @@ def api_agent_credit():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    import credit_agent
     result = credit_agent.run(canonical, data)
     return jsonify(result)
 
@@ -232,7 +242,6 @@ def api_agent_liquidity():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    import liquidity_agent
     result = liquidity_agent.run(canonical, data)
     return jsonify(result)
 
@@ -245,19 +254,46 @@ def api_agent_orchestrate():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    import market_agent, credit_agent, liquidity_agent
-    from agent_base import call_gemini, build_memo_record, save_memo
+    # -----------------------------------------------------------------------
+    # Run all three agents in PARALLEL using a thread pool to cut latency
+    # from ~60–90s (serial) down to ~20–30s (limited by slowest agent).
+    # -----------------------------------------------------------------------
+    results: dict = {}
+    errors:  dict = {}
+    tasks = {
+        "market":    lambda: market_agent.run(canonical, data),
+        "credit":    lambda: credit_agent.run(canonical, data),
+        "liquidity": lambda: liquidity_agent.run(canonical, data),
+    }
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        future_map = {pool.submit(fn): key for key, fn in tasks.items()}
+        for future in as_completed(future_map):
+            key = future_map[future]
+            try:
+                results[key] = future.result()
+            except Exception as exc:
+                logger.error("Agent '%s' failed: %s", key, exc)
+                errors[key] = str(exc)
+                results[key] = {
+                    "risk_level": "HIGH",
+                    "memo": f"Agent failed: {exc}",
+                    "exposure_proposal": "N/A",
+                }
 
-    market    = market_agent.run(canonical, data)
-    credit    = credit_agent.run(canonical, data)
-    liquidity = liquidity_agent.run(canonical, data)
+    market    = results["market"]
+    credit    = results["credit"]
+    liquidity = results["liquidity"]
 
-    # Determine aggregate risk
+    # Weighted aggregate risk: market 40%, credit 35%, liquidity 25%
     levels = {"LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
-    agg_level = max(
-        [market["risk_level"], credit["risk_level"], liquidity["risk_level"]],
-        key=lambda x: levels.get(x, 2),
+    weights = {"market": 0.40, "credit": 0.35, "liquidity": 0.25}
+    weighted_sum = sum(
+        levels.get(results[k].get("risk_level", "MEDIUM"), 2) * w
+        for k, w in weights.items()
     )
+    # Round to nearest integer, map back to label
+    inv_levels = {1: "LOW", 2: "MEDIUM", 3: "HIGH", 4: "CRITICAL"}
+    agg_level = inv_levels.get(round(weighted_sum), "HIGH")
 
     summary_prompt = (
         "You are a head of treasury at an LNG trading company. "
@@ -275,7 +311,7 @@ def api_agent_orchestrate():
         counterparty=canonical,
         agent_type="orchestrator",
         risk_level=agg_level,
-        memo=summary,
+        memo=str(summary),
         exposure_proposal=(
             f"Market: {market['exposure_proposal']} | "
             f"Credit: {credit['exposure_proposal']} | "
@@ -284,14 +320,17 @@ def api_agent_orchestrate():
     )
     save_memo(orch_record)
 
-    return jsonify({
-        "counterparty": canonical,
+    response_payload = {
+        "counterparty":   canonical,
         "aggregate_risk": agg_level,
-        "summary": summary,
-        "market":    market,
-        "credit":    credit,
-        "liquidity": liquidity,
-    })
+        "summary":        str(summary),
+        "market":         market,
+        "credit":         credit,
+        "liquidity":      liquidity,
+    }
+    if errors:
+        response_payload["agent_errors"] = errors
+    return jsonify(response_payload)
 
 
 @app.route("/api/memos")

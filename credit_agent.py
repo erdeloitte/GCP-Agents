@@ -4,9 +4,12 @@ Credit Risk Agent — LNG trader perspective.
 Assesses a counterparty's creditworthiness, leverage, and debt serviceability.
 Recommends a credit limit and payment terms for LNG trading agreements.
 """
+import os
+import logging
 from agent_base import build_memo_record, save_memo, call_gemini
-from crewai import Agent, Task, Crew, Process, LLM
-from crewai_tools import ScrapeWebsiteTool, TavilySearchTool
+from risk_scorer import RiskScorer
+
+logger = logging.getLogger(__name__)
 
 
 SYSTEM_CONTEXT = """\
@@ -38,36 +41,67 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
         "Write the memo now."
     )
 
-    llm = LLM(model="gemini/gemini-3.5-flash", temperature=1)
-    search_tool = TavilySearchTool()
-    scrape_tool = ScrapeWebsiteTool()
+    # ---------------------------------------------------------------------------
+    # Framework selection: use CrewAI if TAVILY_API_KEY is available, else fall
+    # back to the shared call_gemini() so the agent never crashes on missing keys.
+    # ---------------------------------------------------------------------------
+    tavily_key = os.getenv("TAVILY_API_KEY", "").strip()
+    if tavily_key:
+        try:
+            from crewai import Agent, Task, Crew, Process, LLM
+            from crewai_tools import ScrapeWebsiteTool, TavilySearchTool
 
-    credit_analyst = Agent(
-        role="Senior Credit Analyst",
-        goal=f"Assess creditworthiness and debt serviceability for {counterparty_name}.",
-        backstory=SYSTEM_CONTEXT,
-        tools=[search_tool, scrape_tool],
-        llm=llm,
-        verbose=True
-    )
+            llm = LLM(model="gemini/gemini-2.0-flash", temperature=0.3)
+            search_tool = TavilySearchTool()
+            scrape_tool = ScrapeWebsiteTool()
 
-    credit_task = Task(
-        description=(
-            f"Check Yahoo Finance or Investing.com for news on {counterparty_name}'s recent credit events, rating updates, or debt issuances. "
-            f"Evaluate leverage and EBITDA coverage using this financial data: {data_block}. "
-            "Write a quantitative internal credit memo including risk level, limit, and payment terms."
-        ),
-        expected_output="A quantitative internal credit memo with risk level and credit limit.",
-        agent=credit_analyst
-    )
+            credit_analyst = Agent(
+                role="Senior Credit Analyst",
+                goal=f"Assess creditworthiness and debt serviceability for {counterparty_name}.",
+                backstory=SYSTEM_CONTEXT,
+                tools=[search_tool, scrape_tool],
+                llm=llm,
+                verbose=False,   # suppress trace logs in production
+            )
 
-    crew = Crew(agents=[credit_analyst], tasks=[credit_task], process=Process.sequential)
-    result = crew.kickoff()
-    raw = str(result.raw)
+            credit_task = Task(
+                description=(
+                    f"Check Yahoo Finance or Investing.com for news on {counterparty_name}'s recent credit events, "
+                    f"rating updates, or debt issuances. "
+                    f"Evaluate leverage and EBITDA coverage using this financial data: {data_block}. "
+                    "Write a quantitative internal credit memo including risk level, limit, and payment terms."
+                ),
+                expected_output="A quantitative internal credit memo with risk level and credit limit.",
+                agent=credit_analyst,
+            )
 
-    risk_level, credit_limit, payment_terms = _parse_verdict(raw)
-    memo_text = _strip_verdict_lines(raw)
+            crew = Crew(agents=[credit_analyst], tasks=[credit_task], process=Process.sequential)
+            result = crew.kickoff()
+            raw_text = str(result.raw)
+        except Exception as exc:
+            logger.warning("CrewAI credit agent failed, falling back to Gemini: %s", exc)
+            raw_text = str(call_gemini(prompt, temperature=0.3))
+    else:
+        logger.info("TAVILY_API_KEY not set — using Gemini directly for credit assessment.")
+        raw_text = str(call_gemini(prompt, temperature=0.3))
+
+    risk_level, credit_limit, payment_terms = _parse_verdict(raw_text)
+    memo_text = _strip_verdict_lines(raw_text)
     exposure_proposal = f"{credit_limit} | {payment_terms}"
+
+    # Calculate quantitative risk score (consistent with market and liquidity agents)
+    risk_score_result = RiskScorer.calculate_score(
+        company_name=counterparty_name,
+        country=financial_data.get("country", ""),
+        sector=financial_data.get("sector", ""),
+        credit_rating=financial_data.get("credit_rating", "N/A"),
+        debt_to_equity=financial_data.get("debt_to_equity", 0),
+        current_ratio=financial_data.get("current_ratio", 1.0),
+        ebitda_margin_pct=financial_data.get("ebitda_margin_pct", 0),
+        revenue_usd_m=financial_data.get("revenue_usd_m", 0),
+        total_debt_usd_m=financial_data.get("total_debt_usd_m", 0),
+        is_public=_is_public_company(counterparty_name),
+    )
 
     record = build_memo_record(
         counterparty=counterparty_name,
@@ -76,10 +110,33 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
         memo=memo_text,
         exposure_proposal=exposure_proposal,
     )
-    record["credit_limit"]    = credit_limit
-    record["payment_terms"]   = payment_terms
+    record["credit_limit"]           = credit_limit
+    record["payment_terms"]          = payment_terms
+    record["risk_score"]             = risk_score_result["score"]
+    record["risk_score_breakdown"]   = risk_score_result["breakdown"]
+    record["search_queries"]         = []
+    record["search_sources"]         = []
+    record["tool_calls"]             = []
     save_memo(record)
     return record
+
+
+def _is_public_company(name: str) -> bool:
+    """Determine if company is likely public based on name patterns."""
+    name_lower = (name or "").lower()
+    private_companies = [
+        "vitol", "trafigura", "louis dreyfus", "gunvor",
+        "mercuria", "noble", "cargill", "archer daniels",
+        "privately held", "private",
+    ]
+    if any(p in name_lower for p in private_companies):
+        return False
+    if "glencore" in name_lower:
+        return True
+    public_indicators = ["plc", "inc.", "corp.", " ag", " se", " sa", " nv"]
+    if any(p in name_lower for p in public_indicators):
+        return True
+    return True  # default: assume public
 
 
 def _format_data(d: dict) -> str:
