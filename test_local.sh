@@ -18,7 +18,8 @@ export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
 export GEMINI_API_KEY="${GEMINI_API_KEY:-}"
 
 echo "Installing dependencies…"
-pip install -q -r requirements.txt
+pip install --upgrade pip
+pip install -r requirements.txt --log pip_install_log.txt
 
 echo ""
 echo "Starting local server on http://localhost:${PORT}"
