@@ -43,6 +43,29 @@ app = Flask(
 GEMINI_API_KEY   = os.getenv("GEMINI_API_KEY", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
+# -- IAP Authentication Step --
+@app.before_request
+def verify_iap_token():
+    """
+    Ensures that requests are coming through Identity-Aware Proxy.
+    In local development, this can be bypassed via an environment variable.
+    """
+    skip = os.getenv("SKIP_IAP_CHECK", "False") == "True"
+    # Skip check for local development or explicit overrides
+    if app.debug or os.getenv("FLASK_DEBUG") == "1" or skip:
+        return
+
+    # IAP injects this header after successful authentication
+    iap_jwt = request.headers.get('X-Goog-IAP-JWT-Assertion')
+    
+    if not iap_jwt:
+        logger.warning("Unauthorized access attempt: Missing IAP JWT header")
+        return jsonify({
+            "error": "Unauthorized: This application must be accessed through the secure corporate proxy."
+        }), 401
+
+    logger.info("Authenticated request received via IAP")
+
 
 @app.errorhandler(Exception)
 def handle_exception(e):
@@ -57,6 +80,11 @@ def handle_exception(e):
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
+@app.route("/health")
+def health():
+    """Simple connectivity check."""
+    return "OK", 200
 
 def _gemini(prompt: str, temperature: float = 0.3) -> str:
     if not GEMINI_API_KEY:

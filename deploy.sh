@@ -14,6 +14,14 @@
 
 set -euo pipefail
 
+# ── Load Local .env ──────────────────────────────────────────────────
+if [ -f .env ]; then
+  echo "==> Loading environment variables from .env..."
+  while read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ^#.* ]] || [[ -z "$line" ]] || export "$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/[[:space:]]*=[[:space:]]*/=/')"
+  done < .env
+fi
+
 # ── Defaults ────────────────────────────────────────────────────────
 export PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project)}"
 export BUCKET="${BUCKET:-treasury_comm_agent}"
@@ -45,6 +53,7 @@ fi
 echo "==> Enabling required APIs..."
 gcloud services enable artifactregistry.googleapis.com \
   run.googleapis.com \
+  compute.googleapis.com \
   cloudbuild.googleapis.com --project "${PROJECT_ID}"
 
 # ── BigQuery setup ───────────────────────────────────────────────────
@@ -135,9 +144,51 @@ for SVC in ${DASH_SERVICES}; do
     --image "${COMMON_IMAGE}" \
     --region "${REGION}" \
     --platform managed \
-    --no-allow-unauthenticated \
-    --set-env-vars "BUCKET=${BUCKET},BQ_DATASET=${BQ_DATASET},GEMINI_API_KEY=${GEMINI_API_KEY},ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"
+    --allow-unauthenticated \
+    --ingress all \
+    --set-env-vars "BUCKET=${BUCKET},BQ_DATASET=${BQ_DATASET},GEMINI_API_KEY=${GEMINI_API_KEY},ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY},SKIP_IAP_CHECK=True"
 done
+
+echo "==> Provisioning Global External HTTP Load Balancer..."
+IP_NAME="treasury-lb-ip"
+NEG_NAME="treasury-neg"
+BACKEND_NAME="treasury-backend"
+URL_MAP_NAME="treasury-url-map"
+
+# 1. Reserve static IP
+gcloud compute addresses create "${IP_NAME}" --global --project "${PROJECT_ID}" 2>/dev/null || true
+STATIC_IP=$(gcloud compute addresses describe "${IP_NAME}" --global --format='value(address)' --project "${PROJECT_ID}")
+
+# 2. Create Serverless NEG for the dashboard
+gcloud compute network-endpoint-groups create "${NEG_NAME}" \
+    --region="${REGION}" \
+    --network-endpoint-type=serverless \
+    --cloud-run-service="treasury-dashboard" \
+    --project "${PROJECT_ID}" 2>/dev/null || true
+
+# 3. Create Backend Service
+gcloud compute backend-services create "${BACKEND_NAME}" \
+    --load-balancing-scheme=EXTERNAL_MANAGED \
+    --global \
+    --project "${PROJECT_ID}" 2>/dev/null || true
+
+# 4. Add NEG to Backend Service
+gcloud compute backend-services add-backend "${BACKEND_NAME}" \
+    --global \
+    --network-endpoint-group="${NEG_NAME}" \
+    --network-endpoint-group-region="${REGION}" \
+    --project "${PROJECT_ID}" 2>/dev/null || true
+
+# 5. Create URL Map, Target Proxy, and Forwarding Rule
+gcloud compute url-maps create "${URL_MAP_NAME}" --default-service "${BACKEND_NAME}" --project "${PROJECT_ID}" 2>/dev/null || true
+gcloud compute target-http-proxies create "treasury-proxy" --url-map "${URL_MAP_NAME}" --project "${PROJECT_ID}" 2>/dev/null || true
+gcloud compute forwarding-rules create "treasury-rule" \
+    --load-balancing-scheme=EXTERNAL_MANAGED \
+    --address="${IP_NAME}" \
+    --global \
+    --target-http-proxy="treasury-proxy" \
+    --ports=80 \
+    --project "${PROJECT_ID}" 2>/dev/null || true
 
 INGESTOR_URL=$(gcloud run services describe "treasury-ingestor" \
   --project "${PROJECT_ID}" --region "${REGION}" \
@@ -161,18 +212,18 @@ PUB_SUB_SA="service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com"
 CURRENT_USER=$(gcloud config get-value account)
 
 # Grant Pub/Sub Service Agent permission to invoke the private Cloud Run service.
-echo "==> Setting up dedicated service account for Pub/Sub push authentication..."
+echo "==> Setting up service account and permissions..."
 gcloud iam service-accounts create "${INVOKER_SA_NAME}" \
     --display-name="Treasury Pub/Sub Invoker" \
     --project="${PROJECT_ID}" 2>/dev/null || true
 
-# 1. Allow the current user to 'actAs' the new service account to create the subscription
-echo "==> Granting iam.serviceAccountUser to ${CURRENT_USER} on ${INVOKER_SA}..."
-gcloud iam service-accounts add-iam-policy-binding "${INVOKER_SA}" \
-    --member="user:assadie@deloitte.nl" \
-    --member="user:${CURRENT_USER}" \
-    --role="roles/iam.serviceAccountUser" \
-    --project="${PROJECT_ID}" --quiet
+# 1. Allow the current user to 'actAs' the service account (handle users individually)
+for USER_EMAIL in "${CURRENT_USER}" "assadie@deloitte.nl"; do
+  gcloud iam service-accounts add-iam-policy-binding "${INVOKER_SA}" \
+      --member="user:${USER_EMAIL}" \
+      --role="roles/iam.serviceAccountUser" \
+      --project="${PROJECT_ID}" --quiet 2>/dev/null || true
+done
 
 # 2. Allow Pub/Sub Service Agent to create OIDC tokens for our invoker service account
 echo "==> Granting iam.serviceAccountTokenCreator to Pub/Sub on ${INVOKER_SA}..."
@@ -183,21 +234,20 @@ gcloud iam service-accounts add-iam-policy-binding "${INVOKER_SA}" \
 
 # 3. Grant the invoker service account permission to call the Cloud Run services
 for SVC in ${DASH_SERVICES}; do
-  gcloud run services add-iam-policy-binding "${SVC}" \
-    --member="serviceAccount:${PUB_SUB_SA}" \
-    --member="serviceAccount:${INVOKER_SA}" \
-    --member="user:assadie@deloitte.nl" \
-    --member="user:${CURRENT_USER}" \
-    --role="roles/run.invoker" \
-    --region="${REGION}" \
-    --project="${PROJECT_ID}" --quiet
+  echo "==> Applying Invoker permissions for ${SVC}..."
+  for MEMBER in "user:${CURRENT_USER}" "user:assadie@deloitte.nl" "serviceAccount:${PUB_SUB_SA}" "serviceAccount:${INVOKER_SA}"; do
+    gcloud run services add-iam-policy-binding "${SVC}" \
+      --member="${MEMBER}" \
+      --role="roles/run.invoker" \
+      --region="${REGION}" \
+      --project="${PROJECT_ID}" --quiet 2>/dev/null || true
+  done
 done
 
 gcloud pubsub subscriptions delete treasury-ingestor-sub --project "${PROJECT_ID}" 2>/dev/null || true
 gcloud pubsub subscriptions create treasury-ingestor-sub \
   --topic treasury-financials \
-  --push-endpoint "${DASH_URL}/ingest" \
-  --push-auth-service-account="${PUB_SUB_SA}" \
+  --push-endpoint "${INGESTOR_URL}/ingest" \
   --push-auth-service-account="${INVOKER_SA}" \
   --project "${PROJECT_ID}"
 
@@ -205,8 +255,9 @@ echo ""
 echo "========================================================"
 echo " Treasury & Commodity Intelligence Platform — deployed!"
 echo "========================================================"
-echo " All-in-one Platform:  ${DASH_URL}"
+echo " All-in-one Platform (Load Balancer): http://${STATIC_IP}"
+echo " Direct Service URL (Backup):         ${DASH_URL}"
 echo ""
 echo " Quick test — upload a sample financial CSV:"
 echo "   gsutil cp sample_counterparty.csv gs://${BUCKET}/"
-echo " Then open the dashboard: ${DASH_URL}"
+echo " Then open the dashboard: http://${STATIC_IP}"

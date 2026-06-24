@@ -13,7 +13,7 @@ set -euo pipefail
 # ── Set required environment variables ──────────────────────────────
 export BUCKET="${BUCKET:-treasury_comm_agent}"
 export BQ_DATASET="${BQ_DATASET:-doc_metadata}"
-export PORT="${PORT:-8080}"
+export PORT="${PORT:-8081}"
 export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
 export GEMINI_API_KEY="${GEMINI_API_KEY:-}"
 
@@ -26,4 +26,4 @@ echo "Starting local server on http://localhost:${PORT}"
 echo "Press Ctrl+C to stop."
 echo ""
 
-gunicorn --bind ":${PORT}" --workers 1 --threads 2 --timeout 60 main:app
+gunicorn --bind ":${PORT}" --workers 1 --threads 2 --timeout 60 dashboard:app
