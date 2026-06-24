@@ -3,10 +3,9 @@
 #             Analytics platform to Google Cloud Run.
 #
 # Required env vars (export before running):
-#   PROJECT_ID    – GCP project ID          (e.g. my-gcp-project)
-#   REGION        – Deployment region        (e.g. europe-west4)
-#   SERVICE_NAME  – Ingestion service name   (e.g. treasury-ingestor)
-#   DASH_SERVICE  – Dashboard service name   (e.g. treasury-dashboard)
+#   PROJECT_ID    – GCP project ID          (dttl-nl-genai-sandbox)
+#   REGION        – Deployment region        (europe-west4)
+#   DASH_SERVICE  – Dashboard service name   (treasury-ingestor and treasury-dashboard)
 #   BUCKET        – Cloud Storage bucket     (e.g. treasury_comm_agent)
 #   BQ_DATASET    – BigQuery dataset         (e.g. treasury_analytics)
 #   GEMINI_API_KEY – Google AI Studio key   (free tier at aistudio.google.com)
@@ -20,8 +19,8 @@ set -euo pipefail
 export PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project)}"
 export BUCKET="${BUCKET:-treasury_comm_agent}"
 export REGION="${REGION:-europe-west4}"
-export SERVICE_NAME="${SERVICE_NAME:-treasury-ingestor}"
-export DASH_SERVICE="${DASH_SERVICE:-treasury-dashboard}"
+export REPO_NAME="${REPO_NAME:-treasury-repo}"
+export DASH_SERVICES="${DASH_SERVICES:-treasury-ingestor treasury-dashboard}"
 export BQ_DATASET="${BQ_DATASET:-treasury_analytics}"
 export GEMINI_API_KEY="${GEMINI_API_KEY:-}"
 export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
@@ -30,16 +29,25 @@ export TAVILY_API_KEY="${TAVILY_API_KEY:-}"
 
 
 # ── Validate ─────────────────────────────────────────────────────────
-for var in PROJECT_ID REGION SERVICE_NAME DASH_SERVICE BUCKET BQ_DATASET ANTHROPIC_API_KEY; do
+for var in PROJECT_ID REGION BUCKET BQ_DATASET; do
   if [[ -z "${!var:-}" ]]; then
     echo "ERROR: $var is not set. Export it before running ./deploy.sh"; exit 1
   fi
 done
 
-if [[ -z "${GEMINI_API_KEY}" ]]; then
+if [[ -z "${GEMINI_API_KEY:-}" ]]; then
   echo "WARNING: GEMINI_API_KEY not set — the AI chat feature will return 503."
   echo "         Get a free key at https://aistudio.google.com/app/apikey"
 fi
+
+if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+  echo "WARNING: ANTHROPIC_API_KEY not set. Advanced features like Claude-based OCR fallback will be disabled."
+fi
+
+echo "==> Enabling required APIs..."
+gcloud services enable artifactregistry.googleapis.com \
+  run.googleapis.com \
+  cloudbuild.googleapis.com --project "${PROJECT_ID}"
 
 # ── BigQuery setup ───────────────────────────────────────────────────
 echo "==> Creating BigQuery dataset and table (idempotent)…"
@@ -87,35 +95,18 @@ gsutil notification create \
   -f json \
   "gs://${BUCKET}" 2>/dev/null || true
 
-# ── Build & deploy ingestion service ────────────────────────────────
-INGESTOR_IMAGE="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
-echo "==> Building ingestor image: ${INGESTOR_IMAGE}"
-gcloud builds submit --project "${PROJECT_ID}" --tag "${INGESTOR_IMAGE}" .
-
-echo "==> Deploying ingestor to Cloud Run…"
-gcloud run deploy "${SERVICE_NAME}" \
-  --project "${PROJECT_ID}" \
-  --image "${INGESTOR_IMAGE}" \
-  --region "${REGION}" \
-  --platform managed \
-  --allow-unauthenticated \
-  --set-env-vars "BUCKET=${BUCKET},BQ_DATASET=${BQ_DATASET},ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"
-
-INGESTOR_URL=$(gcloud run services describe "${SERVICE_NAME}" \
-  --project "${PROJECT_ID}" --region "${REGION}" \
-  --format='value(status.url)')
-
-echo "==> Creating Pub/Sub push subscription → ${INGESTOR_URL}"
-gcloud pubsub subscriptions create treasury-ingestor-sub \
-  --topic treasury-financials \
-  --push-endpoint "${INGESTOR_URL}" \
-  --project "${PROJECT_ID}" 2>/dev/null || true
+# ── Artifact Registry setup ──────────────────────────────────────────
+echo "==> Ensuring Artifact Registry repository exists..."
+gcloud artifacts repositories create "${REPO_NAME}" \
+    --repository-format=docker \
+    --location="${REGION}" \
+    --description="Treasury Agent Images" \
+    --project="${PROJECT_ID}" 2>/dev/null || true
 
 # ── Build & deploy dashboard service ────────────────────────────────
-DASH_IMAGE="gcr.io/${PROJECT_ID}/${DASH_SERVICE}"
-echo "==> Building dashboard image: ${DASH_IMAGE}"
-# Dashboard uses dashboard.py as entry point — swap CMD in a copy
-cp main.py main.py.bak
+COMMON_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/treasury-platform"
+echo "==> Building platform image: ${COMMON_IMAGE}"
+
 cp dashboard.py main_dash_entry.py
 cat > Dockerfile.dash <<'EOF'
 FROM python:3.11-slim
@@ -123,40 +114,71 @@ RUN apt-get update && apt-get install -y --no-install-recommends gcc && rm -rf /
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir --default-timeout=100 -r requirements.txt
 COPY . .
 EXPOSE 8080
 CMD gunicorn --bind :${PORT:-8080} --workers 1 --threads 8 --timeout 0 dashboard:app
 EOF
-gcloud builds submit --project "${PROJECT_ID}" --tag "${DASH_IMAGE}" \
-  --config /dev/stdin . <<'CLOUDBUILD'
+
+gcloud builds submit --project "${PROJECT_ID}" \
+  --config /dev/stdin . <<CONFIG
 steps:
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-f', 'Dockerfile.dash', '-t', '$_IMAGE', '.']
-- name: 'gcr.io/cloud-builders/docker'
-  args: ['push', '$_IMAGE']
-images: ['$_IMAGE']
-CLOUDBUILD
+  args: ['build', '-f', 'Dockerfile.dash', '-t', '${COMMON_IMAGE}', '.']
+images:
+- '${COMMON_IMAGE}'
+CONFIG
 
-gcloud run deploy "${DASH_SERVICE}" \
-  --project "${PROJECT_ID}" \
-  --image "${DASH_IMAGE}" \
-  --region "${REGION}" \
-  --platform managed \
-  --allow-unauthenticated \
-  --set-env-vars "BQ_DATASET=${BQ_DATASET},GEMINI_API_KEY=${GEMINI_API_KEY},ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"
+for SVC in ${DASH_SERVICES}; do
+  echo "==> Deploying service: ${SVC}"
+  gcloud run deploy "${SVC}" \
+    --project "${PROJECT_ID}" \
+    --image "${COMMON_IMAGE}" \
+    --region "${REGION}" \
+    --platform managed \
+    --no-allow-unauthenticated \
+    --set-env-vars "BUCKET=${BUCKET},BQ_DATASET=${BQ_DATASET},GEMINI_API_KEY=${GEMINI_API_KEY},ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY},TAVILY_API_KEY=${TAVILY_API_KEY}"
+done
 
-DASH_URL=$(gcloud run services describe "${DASH_SERVICE}" \
+INGESTOR_URL=$(gcloud run services describe "treasury-ingestor" \
   --project "${PROJECT_ID}" --region "${REGION}" \
-  --format='value(status.url)')
+  --format='value(status.url)' 2>/dev/null || echo "")
+
+DASH_URL=$(gcloud run services describe "treasury-dashboard" \
+  --project "${PROJECT_ID}" --region "${REGION}" \
+  --format='value(status.url)' 2>/dev/null || echo "${INGESTOR_URL}")
 
 rm -f Dockerfile.dash main_dash_entry.py
+
+echo "==> Updating Pub/Sub subscription to point to Dashboard..."
+# For private services, Pub/Sub needs an OIDC token to authenticate with Cloud Run.
+echo "==> Resolving Project Number for Project ID: ${PROJECT_ID}..."
+PROJECT_NUMBER=$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')
+echo "==> Project Number: ${PROJECT_NUMBER}"
+PUB_SUB_SA="service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com"
+
+# Grant Pub/Sub Service Agent permission to invoke the private Cloud Run service.
+for SVC in ${DASH_SERVICES}; do
+  gcloud run services add-iam-policy-binding "${SVC}" \
+    --member="serviceAccount:${PUB_SUB_SA}" \
+    --role="roles/run.invoker" \
+    --region="${REGION}" \
+    --project="${PROJECT_ID}" --quiet
+done
+
+gcloud pubsub subscriptions delete treasury-ingestor-sub --project "${PROJECT_ID}" 2>/dev/null || true
+gcloud pubsub subscriptions create treasury-ingestor-sub \
+  --topic treasury-financials \
+  --push-endpoint "${DASH_URL}/ingest" \
+  --push-auth-service-account="${PUB_SUB_SA}" \
+  --project "${PROJECT_ID}"
 
 echo ""
 echo "========================================================"
 echo " Treasury & Commodity Intelligence Platform — deployed!"
 echo "========================================================"
-echo " Ingestor (pipeline):  ${INGESTOR_URL}"
-echo " Dashboard (UI + AI):  ${DASH_URL}"
+echo " All-in-one Platform:  ${DASH_URL}"
 echo ""
 echo " Quick test — upload a sample financial CSV:"
 echo "   gsutil cp sample_counterparty.csv gs://${BUCKET}/"
