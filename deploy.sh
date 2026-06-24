@@ -154,12 +154,40 @@ echo "==> Updating Pub/Sub subscription to point to Dashboard..."
 echo "==> Resolving Project Number for Project ID: ${PROJECT_ID}..."
 PROJECT_NUMBER=$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')
 echo "==> Project Number: ${PROJECT_NUMBER}"
+
+INVOKER_SA_NAME="treasury-invoker"
+INVOKER_SA="${INVOKER_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 PUB_SUB_SA="service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com"
+CURRENT_USER=$(gcloud config get-value account)
 
 # Grant Pub/Sub Service Agent permission to invoke the private Cloud Run service.
+echo "==> Setting up dedicated service account for Pub/Sub push authentication..."
+gcloud iam service-accounts create "${INVOKER_SA_NAME}" \
+    --display-name="Treasury Pub/Sub Invoker" \
+    --project="${PROJECT_ID}" 2>/dev/null || true
+
+# 1. Allow the current user to 'actAs' the new service account to create the subscription
+echo "==> Granting iam.serviceAccountUser to ${CURRENT_USER} on ${INVOKER_SA}..."
+gcloud iam service-accounts add-iam-policy-binding "${INVOKER_SA}" \
+    --member="user:assadie@deloitte.nl" \
+    --member="user:${CURRENT_USER}" \
+    --role="roles/iam.serviceAccountUser" \
+    --project="${PROJECT_ID}" --quiet
+
+# 2. Allow Pub/Sub Service Agent to create OIDC tokens for our invoker service account
+echo "==> Granting iam.serviceAccountTokenCreator to Pub/Sub on ${INVOKER_SA}..."
+gcloud iam service-accounts add-iam-policy-binding "${INVOKER_SA}" \
+    --member="serviceAccount:${PUB_SUB_SA}" \
+    --role="roles/iam.serviceAccountTokenCreator" \
+    --project="${PROJECT_ID}" --quiet
+
+# 3. Grant the invoker service account permission to call the Cloud Run services
 for SVC in ${DASH_SERVICES}; do
   gcloud run services add-iam-policy-binding "${SVC}" \
     --member="serviceAccount:${PUB_SUB_SA}" \
+    --member="serviceAccount:${INVOKER_SA}" \
+    --member="user:assadie@deloitte.nl" \
+    --member="user:${CURRENT_USER}" \
     --role="roles/run.invoker" \
     --region="${REGION}" \
     --project="${PROJECT_ID}" --quiet
@@ -170,6 +198,7 @@ gcloud pubsub subscriptions create treasury-ingestor-sub \
   --topic treasury-financials \
   --push-endpoint "${DASH_URL}/ingest" \
   --push-auth-service-account="${PUB_SUB_SA}" \
+  --push-auth-service-account="${INVOKER_SA}" \
   --project "${PROJECT_ID}"
 
 echo ""
