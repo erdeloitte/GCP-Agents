@@ -6,9 +6,6 @@ python-dotenv==1.0.1
 
 # AI & LLM Frameworks
 google-genai==1.16.0
-crewai==0.80.0
-crewai-tools==0.17.0
-# langchain removed: was only used to suppress its debug flag and adds ~50 transitive packages for zero benefit.
 pydantic==2.8.2
 anthropic==0.37.0
 pypdf==4.3.1
@@ -17,7 +14,6 @@ pypdf==4.3.1
 pandas==2.2.2
 openpyxl==3.1.5
 yfinance==0.2.43
-# tavily-python removed: already pulled transitively by crewai-tools
 
 # Google Cloud Platform
 google-cloud-bigquery==3.25.0

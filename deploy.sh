@@ -3,14 +3,13 @@
 #             Analytics platform to Google Cloud Run.
 #
 # Required env vars (export before running):
-#   PROJECT_ID    – GCP project ID          (dttl-nl-genai-sandbox)
-#   REGION        – Deployment region        (europe-west4)
-#   DASH_SERVICE  – Dashboard service name   (treasury-ingestor and treasury-dashboard)
-#   BUCKET        – Cloud Storage bucket     (e.g. treasury_comm_agent)
-#   BQ_DATASET    – BigQuery dataset         (e.g. treasury_analytics)
-#   GEMINI_API_KEY – Google AI Studio key   (free tier at aistudio.google.com)
-#   ANTHROPIC_API_KEY
-#   TAVILY_API_KEY
+#   PROJECT_ID      – GCP project ID          (dttl-nl-genai-sandbox)
+#   REGION          – Deployment region        (europe-west4)
+#   DASH_SERVICE    – Dashboard service name   (treasury-ingestor and treasury-dashboard)
+#   BUCKET          – Cloud Storage bucket     (e.g. treasury_comm_agent)
+#   BQ_DATASET      – BigQuery dataset         (e.g. treasury_analytics)
+#   GEMINI_API_KEY  – Google AI Studio key   (free tier at aistudio.google.com)
+#   ANTHROPIC_API_KEY – Claude API key for advanced features (optional)
 
 
 set -euo pipefail
@@ -24,7 +23,6 @@ export DASH_SERVICES="${DASH_SERVICES:-treasury-ingestor treasury-dashboard}"
 export BQ_DATASET="${BQ_DATASET:-treasury_analytics}"
 export GEMINI_API_KEY="${GEMINI_API_KEY:-}"
 export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
-export TAVILY_API_KEY="${TAVILY_API_KEY:-}"
 
 
 
@@ -138,7 +136,7 @@ for SVC in ${DASH_SERVICES}; do
     --region "${REGION}" \
     --platform managed \
     --no-allow-unauthenticated \
-    --set-env-vars "BUCKET=${BUCKET},BQ_DATASET=${BQ_DATASET},GEMINI_API_KEY=${GEMINI_API_KEY},ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY},TAVILY_API_KEY=${TAVILY_API_KEY}"
+    --set-env-vars "BUCKET=${BUCKET},BQ_DATASET=${BQ_DATASET},GEMINI_API_KEY=${GEMINI_API_KEY},ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"
 done
 
 INGESTOR_URL=$(gcloud run services describe "treasury-ingestor" \

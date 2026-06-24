@@ -1,0 +1,11 @@
+trade_id,counterparty_name,counterparty_country,trade_type,underlying_asset,notional_usd_m,our_currency,counterparty_currency,notional_counterparty_currency,trade_date,maturity_date,strike_price,current_mark_usd_m,daily_margin_requirement_usd,collateral_posted_usd,counterparty_exposure_usd_m,trade_status,last_updated
+SWAP_001,Shell PLC,United Kingdom,FX Swap,GBP/USD,150,USD,GBP,120,2024-01-15,2025-01-15,1.27,2.1,500000,5000000,2.1,Active,2024-12-15T10:30:00Z
+SWAP_002,TotalEnergies SE,France,Commodity Swap,LNG Price,250,USD,EUR,230,2024-02-01,2025-08-01,11.50,8.3,800000,12000000,8.3,Active,2024-12-15T10:30:00Z
+SWAP_003,Glencore PLC,Switzerland,Interest Rate Swap,USD LIBOR,200,USD,USD,200,2024-03-10,2026-03-10,4.75,-1.2,600000,8000000,1.2,Active,2024-12-15T10:30:00Z
+SWAP_004,Vitol Group,Netherlands,Commodity Swap,Crude Oil WTI,500,USD,USD,500,2024-01-20,2025-12-20,82.50,12.5,1200000,15000000,12.5,Active,2024-12-15T10:30:00Z
+SWAP_005,Trafigura Group,Singapore,FX Forward,SGD/USD,75,USD,SGD,100,2024-04-05,2025-04-05,0.745,0.8,300000,2500000,0.8,Active,2024-12-15T10:30:00Z
+SWAP_006,Anglo American,United Kingdom,Commodity Swap,Natural Gas (HH),120,USD,USD,120,2024-02-28,2025-02-28,3.25,2.4,400000,6000000,2.4,Active,2024-12-15T10:30:00Z
+SWAP_007,BASF SE,Germany,Interest Rate Swap,EUR EURIBOR,180,EUR,EUR,180,2024-03-15,2027-03-15,3.85,-0.5,550000,7000000,0.5,Active,2024-12-15T10:30:00Z
+SWAP_008,Louis Dreyfus,Netherlands,Commodity Swap,Agricultural Products,80,USD,USD,80,2024-04-01,2025-04-01,425.00,1.6,250000,3500000,1.6,Active,2024-12-15T10:30:00Z
+SWAP_009,Gunvor Group,Cyprus,FX Swap,EUR/USD,120,USD,EUR,110,2024-05-10,2025-05-10,1.09,1.5,450000,4000000,1.5,Active,2024-12-15T10:30:00Z
+SWAP_010,Bunge Global SA,United States,Commodity Swap,Soybean,60,USD,USD,60,2024-04-20,2025-10-20,12.80,0.9,200000,2000000,0.9,Active,2024-12-15T10:30:00Z

@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Install Python dependencies first (Docker layer caching)
+# Note: CrewAI and Tavily have been removed. Using Gemini orchestrator exclusively.
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -16,6 +17,12 @@ COPY main.py .
 COPY cloud_storage_helper.py .
 COPY bigquery_helper.py .
 COPY ocr_simulator.py .
+COPY agent_base.py .
+COPY credit_agent.py .
+COPY market_agent.py .
+COPY liquidity_agent.py .
+COPY risk_scorer.py .
+COPY market_data_helper.py .
 
 # Expose the port Cloud Run will send traffic to
 EXPOSE 8080

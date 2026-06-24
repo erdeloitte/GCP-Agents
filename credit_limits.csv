@@ -1,0 +1,11 @@
+limit_id,counterparty_name,counterparty_country,credit_rating,credit_limit_usd_m,current_exposure_usd_m,available_limit_usd_m,utilization_pct,limit_type,collateral_required,collateral_haircut_pct,limit_start_date,limit_end_date,approval_authority,daily_limit_breach_alert_usd_m,last_reviewed,last_updated
+LIMIT_001,Shell PLC,United Kingdom,AA-,500,127.1,372.9,25.4,Unsecured,FALSE,NULL,2024-01-01,2025-12-31,CFO,50,2024-11-15,2024-12-15T10:30:00Z
+LIMIT_002,TotalEnergies SE,France,A+,400,94.8,305.2,23.7,Secured,TRUE,15.0,2024-01-01,2025-12-31,CFO,40,2024-11-10,2024-12-15T10:30:00Z
+LIMIT_003,Glencore PLC,Switzerland,BBB,300,156.5,143.5,52.2,Secured,TRUE,20.0,2024-01-01,2025-12-31,Treasurer,30,2024-11-05,2024-12-15T10:30:00Z
+LIMIT_004,Vitol Group,Netherlands,BB+,250,128.3,121.7,51.3,Secured,TRUE,25.0,2024-01-01,2025-12-31,Treasurer,25,2024-11-01,2024-12-15T10:30:00Z
+LIMIT_005,Trafigura Group,Singapore,BB,220,89.6,130.4,40.7,Secured,TRUE,30.0,2024-01-01,2025-12-31,Treasurer,22,2024-10-28,2024-12-15T10:30:00Z
+LIMIT_006,BASF SE,Germany,A,350,62.1,287.9,17.7,Unsecured,FALSE,NULL,2024-01-01,2025-12-31,CFO,35,2024-11-12,2024-12-15T10:30:00Z
+LIMIT_007,Anglo American,United Kingdom,BBB,280,58.9,221.1,21.0,Unsecured,FALSE,NULL,2024-01-01,2025-12-31,CFO,28,2024-11-08,2024-12-15T10:30:00Z
+LIMIT_008,Bunge Global SA,United States,BBB-,180,75.4,104.6,41.9,Secured,TRUE,25.0,2024-01-01,2025-12-31,Treasurer,18,2024-10-30,2024-12-15T10:30:00Z
+LIMIT_009,Louis Dreyfus,Netherlands,BB+,160,68.2,91.8,42.6,Secured,TRUE,30.0,2024-01-01,2025-12-31,Treasurer,16,2024-10-25,2024-12-15T10:30:00Z
+LIMIT_010,Gunvor Group,Cyprus,B+,120,58.9,61.1,49.1,Secured,TRUE,40.0,2024-01-01,2025-12-31,Treasurer,12,2024-10-20,2024-12-15T10:30:00Z

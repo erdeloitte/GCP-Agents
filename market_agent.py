@@ -3,15 +3,19 @@ Market Risk Agent — LNG trader perspective.
 
 Assesses a counterparty's exposure to commodity market movements,
 revenue quality, sector concentration, and recommends a notional
-trading exposure limit.
-
+trading exposure limit. Uses Gemini orchestrator with comprehensive logging.
 """
-from agent_base import call_gemini, build_memo_record, save_memo
-from risk_scorer import RiskScorer
+import logging
 import os
 from dotenv import load_dotenv
 
+from agent_base import call_gemini, build_memo_record, save_memo
+from risk_scorer import RiskScorer
+
 load_dotenv()
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
   
 
 SYSTEM_CONTEXT = """\
@@ -52,6 +56,9 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
     Returns:
         Dict with memo, risk_level, exposure_proposal, and metadata.
     """
+    logger.info(f"[MARKET_AGENT] Starting market risk assessment for {counterparty_name}")
+    logger.info(f"[MARKET_AGENT] Financial data: Revenue=${financial_data.get('revenue_usd_m', 0):.0f}M, Sector={financial_data.get('sector', 'N/A')}, EBITDA Margin={financial_data.get('ebitda_margin_pct', 0):.1f}%")
+
     data_block = _format_data(financial_data)
     prompt = (
         f"{SYSTEM_CONTEXT}\n\n"
@@ -60,11 +67,15 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
         "Write the memo now."
     )
 
+    logger.info(f"[MARKET_AGENT] Invoking Gemini orchestrator for market risk analysis")
     raw = call_gemini(prompt, temperature=0.4)
     risk_level, exposure = _parse_verdict(raw)
     memo_text = _strip_verdict_lines(raw)
 
-    # Calculate risk score based on financial data
+    logger.info(f"[MARKET_AGENT] Parsed verdict: Risk Level={risk_level}, Exposure Limit={exposure}")
+    logger.info(f"[MARKET_AGENT] Gemini tool calls: {len(getattr(raw, 'tool_calls', []))} calls")
+
+    logger.info(f"[MARKET_AGENT] Calculating quantitative risk score for {counterparty_name}")
     risk_score_result = RiskScorer.calculate_score(
         company_name=counterparty_name,
         country=financial_data.get("country", ""),
@@ -78,6 +89,8 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
         is_public=_is_public_company(counterparty_name),
     )
 
+    logger.info(f"[MARKET_AGENT] Risk score: {risk_score_result['score']}/100 - {risk_score_result['breakdown']}")
+
     record = build_memo_record(
         counterparty=counterparty_name,
         agent_type="market",
@@ -90,7 +103,11 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
     record["tool_calls"] = getattr(raw, "tool_calls", [])
     record["risk_score"] = risk_score_result["score"]
     record["risk_score_breakdown"] = risk_score_result["breakdown"]
+
+    logger.info(f"[MARKET_AGENT] Search queries performed: {record['search_queries']}")
+    logger.info(f"[MARKET_AGENT] Saving market memo to BigQuery for {counterparty_name}")
     save_memo(record)
+    logger.info(f"[MARKET_AGENT] Market assessment completed for {counterparty_name}")
     return record
 
 

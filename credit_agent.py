@@ -3,6 +3,7 @@ Credit Risk Agent — LNG trader perspective.
 
 Assesses a counterparty's creditworthiness, leverage, and debt serviceability.
 Recommends a credit limit and payment terms for LNG trading agreements.
+Uses Gemini as the orchestrator with comprehensive logging of all actions.
 """
 import os
 import logging
@@ -10,6 +11,7 @@ from agent_base import build_memo_record, save_memo, call_gemini
 from risk_scorer import RiskScorer
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 
 SYSTEM_CONTEXT = """\
@@ -41,55 +43,21 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
         "Write the memo now."
     )
 
-    # ---------------------------------------------------------------------------
-    # Framework selection: use CrewAI if TAVILY_API_KEY is available, else fall
-    # back to the shared call_gemini() so the agent never crashes on missing keys.
-    # ---------------------------------------------------------------------------
-    tavily_key = os.getenv("TAVILY_API_KEY", "").strip()
-    if tavily_key:
-        try:
-            from crewai import Agent, Task, Crew, Process, LLM
-            from crewai_tools import ScrapeWebsiteTool, TavilySearchTool
+    logger.info(f"[CREDIT_AGENT] Starting credit assessment for {counterparty_name}")
+    logger.info(f"[CREDIT_AGENT] Financial data summary: Revenue=${financial_data.get('revenue_usd_m', 0):.0f}M, Debt/Equity={financial_data.get('debt_to_equity', 0):.2f}x, Rating={financial_data.get('credit_rating', 'N/A')}")
 
-            llm = LLM(model="gemini/gemini-3.5-flash", temperature=0.3)
-            search_tool = TavilySearchTool()
-            scrape_tool = ScrapeWebsiteTool()
+    logger.info(f"[CREDIT_AGENT] Invoking Gemini orchestrator with credit assessment prompt")
+    raw_text = str(call_gemini(prompt, temperature=0.3))
 
-            credit_analyst = Agent(
-                role="Senior Credit Analyst",
-                goal=f"Assess creditworthiness and debt serviceability for {counterparty_name}.",
-                backstory=SYSTEM_CONTEXT,
-                tools=[search_tool, scrape_tool],
-                llm=llm,
-                verbose=False,   # suppress trace logs in production
-            )
-
-            credit_task = Task(
-                description=(
-                    f"Check Yahoo Finance or Investing.com for news on {counterparty_name}'s recent credit events, "
-                    f"rating updates, or debt issuances. "
-                    f"Evaluate leverage and EBITDA coverage using this financial data: {data_block}. "
-                    "Write a quantitative internal credit memo including risk level, limit, and payment terms."
-                ),
-                expected_output="A quantitative internal credit memo with risk level and credit limit.",
-                agent=credit_analyst,
-            )
-
-            crew = Crew(agents=[credit_analyst], tasks=[credit_task], process=Process.sequential)
-            result = crew.kickoff()
-            raw_text = str(result.raw)
-        except Exception as exc:
-            logger.warning("CrewAI credit agent failed, falling back to Gemini: %s", exc)
-            raw_text = str(call_gemini(prompt, temperature=0.3))
-    else:
-        logger.info("TAVILY_API_KEY not set — using Gemini directly for credit assessment.")
-        raw_text = str(call_gemini(prompt, temperature=0.3))
+    logger.info(f"[CREDIT_AGENT] Gemini response received, processing verdict lines")
 
     risk_level, credit_limit, payment_terms = _parse_verdict(raw_text)
     memo_text = _strip_verdict_lines(raw_text)
     exposure_proposal = f"{credit_limit} | {payment_terms}"
 
-    # Calculate quantitative risk score (consistent with market and liquidity agents)
+    logger.info(f"[CREDIT_AGENT] Parsed verdict: Risk Level={risk_level}, Credit Limit={credit_limit}, Payment Terms={payment_terms}")
+
+    logger.info(f"[CREDIT_AGENT] Calculating quantitative risk score for {counterparty_name}")
     risk_score_result = RiskScorer.calculate_score(
         company_name=counterparty_name,
         country=financial_data.get("country", ""),
@@ -103,6 +71,8 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
         is_public=_is_public_company(counterparty_name),
     )
 
+    logger.info(f"[CREDIT_AGENT] Risk score calculated: {risk_score_result['score']}/100 - {risk_score_result['breakdown']}")
+
     record = build_memo_record(
         counterparty=counterparty_name,
         agent_type="credit",
@@ -114,10 +84,16 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
     record["payment_terms"]          = payment_terms
     record["risk_score"]             = risk_score_result["score"]
     record["risk_score_breakdown"]   = risk_score_result["breakdown"]
-    record["search_queries"]         = []
-    record["search_sources"]         = []
-    record["tool_calls"]             = []
+    record["search_queries"]         = getattr(raw_text, "search_queries", [])
+    record["search_sources"]         = getattr(raw_text, "search_sources", [])
+    record["tool_calls"]             = getattr(raw_text, "tool_calls", [])
+
+    logger.info(f"[CREDIT_AGENT] Gemini tool calls captured: {len(record['tool_calls'])} calls")
+    logger.info(f"[CREDIT_AGENT] Search queries: {record['search_queries']}")
+
+    logger.info(f"[CREDIT_AGENT] Saving credit memo to BigQuery for {counterparty_name}")
     save_memo(record)
+    logger.info(f"[CREDIT_AGENT] Credit assessment completed for {counterparty_name}")
     return record
 
 

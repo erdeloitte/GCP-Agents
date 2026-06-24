@@ -3,9 +3,15 @@ Liquidity & Settlement Risk Agent — LNG trader perspective.
 
 Assesses a counterparty's ability to settle LNG trades on time.
 Focuses on short-term liquidity, working capital, and operational cash flow.
+Uses Gemini orchestrator with comprehensive logging.
 """
+import logging
+
 from agent_base import call_gemini, build_memo_record, save_memo
 from risk_scorer import RiskScorer
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 
 SYSTEM_CONTEXT = """\
@@ -28,6 +34,9 @@ SETTLEMENT_TERMS: <Standard|Advance Payment|Escrow|LC Required|Partial Advance>
 
 
 def run(counterparty_name: str, financial_data: dict) -> dict:
+    logger.info(f"[LIQUIDITY_AGENT] Starting liquidity & settlement risk assessment for {counterparty_name}")
+    logger.info(f"[LIQUIDITY_AGENT] Financial data: Current Ratio={financial_data.get('current_ratio', 0):.2f}x, Revenue=${financial_data.get('revenue_usd_m', 0):.0f}M, Debt/Equity={financial_data.get('debt_to_equity', 0):.2f}x")
+
     data_block = _format_data(financial_data)
     prompt = (
         f"{SYSTEM_CONTEXT}\n\n"
@@ -36,11 +45,15 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
         "Write the memo now."
     )
 
+    logger.info(f"[LIQUIDITY_AGENT] Invoking Gemini orchestrator for liquidity assessment")
     raw = call_gemini(prompt, temperature=0.2)
     risk_level, settlement = _parse_verdict(raw)
     memo_text = _strip_verdict_lines(raw)
 
-    # Calculate quantitative risk score (consistent across all agents)
+    logger.info(f"[LIQUIDITY_AGENT] Parsed verdict: Risk Level={risk_level}, Settlement Terms={settlement}")
+    logger.info(f"[LIQUIDITY_AGENT] Gemini tool calls: {len(getattr(raw, 'tool_calls', []))} calls")
+
+    logger.info(f"[LIQUIDITY_AGENT] Calculating quantitative risk score for {counterparty_name}")
     risk_score_result = RiskScorer.calculate_score(
         company_name=counterparty_name,
         country=financial_data.get("country", ""),
@@ -52,6 +65,8 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
         revenue_usd_m=financial_data.get("revenue_usd_m", 0),
         total_debt_usd_m=financial_data.get("total_debt_usd_m", 0),
     )
+
+    logger.info(f"[LIQUIDITY_AGENT] Risk score: {risk_score_result['score']}/100 - {risk_score_result['breakdown']}")
 
     record = build_memo_record(
         counterparty=counterparty_name,
@@ -66,7 +81,10 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
     record["search_queries"]         = getattr(raw, "search_queries", [])
     record["search_sources"]         = getattr(raw, "search_sources", [])
     record["tool_calls"]             = getattr(raw, "tool_calls", [])
+
+    logger.info(f"[LIQUIDITY_AGENT] Saving liquidity memo to BigQuery for {counterparty_name}")
     save_memo(record)
+    logger.info(f"[LIQUIDITY_AGENT] Liquidity assessment completed for {counterparty_name}")
     return record
 
 
