@@ -71,6 +71,7 @@ def _gemini(prompt: str, temperature: float = 0.3) -> str:
             contents=prompt,
             config=types.GenerateContentConfig(
                 tools=[{"google_search": {}}],
+                tool_config=types.ToolConfig(includeServerSideToolInvocations=True),
                 temperature=temperature,
                 max_output_tokens=2048,
             ),

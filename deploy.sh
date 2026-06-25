@@ -29,6 +29,8 @@ export REGION="${REGION:-europe-west4}"
 export REPO_NAME="${REPO_NAME:-treasury-repo}"
 export DASH_SERVICES="${DASH_SERVICES:-treasury-ingestor treasury-dashboard}"
 export BQ_DATASET="${BQ_DATASET:-treasury_analytics}"
+export LB_DOMAIN="${LB_DOMAIN:-}"
+export IAP_USER="${IAP_USER:-eruizduarte@deloitte.nl}"
 export GEMINI_API_KEY="${GEMINI_API_KEY:-}"
 export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
 
@@ -54,6 +56,7 @@ echo "==> Enabling required APIs..."
 gcloud services enable artifactregistry.googleapis.com \
   run.googleapis.com \
   compute.googleapis.com \
+  iap.googleapis.com \
   cloudbuild.googleapis.com --project "${PROJECT_ID}"
 
 # ── BigQuery setup ───────────────────────────────────────────────────
@@ -137,6 +140,12 @@ images:
 - '${COMMON_IMAGE}'
 CONFIG
 
+if [[ -z "${LB_DOMAIN}" ]]; then
+  echo "ERROR: LB_DOMAIN is not set. Export LB_DOMAIN to a valid domain name for IAP HTTPS access." >&2
+  exit 1
+fi
+
+echo "==> Deploying private Cloud Run services: ${DASH_SERVICES}"
 for SVC in ${DASH_SERVICES}; do
   echo "==> Deploying service: ${SVC}"
   gcloud run deploy "${SVC}" \
@@ -144,10 +153,20 @@ for SVC in ${DASH_SERVICES}; do
     --image "${COMMON_IMAGE}" \
     --region "${REGION}" \
     --platform managed \
-    --allow-unauthenticated \
-    --ingress all \
-    --set-env-vars "BUCKET=${BUCKET},BQ_DATASET=${BQ_DATASET},GEMINI_API_KEY=${GEMINI_API_KEY},ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY},SKIP_IAP_CHECK=True"
+    --no-allow-unauthenticated \
+    --ingress internal-and-cloud-load-balancing \
+    --set-env-vars "BUCKET=${BUCKET},BQ_DATASET=${BQ_DATASET},GEMINI_API_KEY=${GEMINI_API_KEY},ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"
 done
+
+echo "==> Cleaning up any stale load balancer resources..."
+gcloud compute forwarding-rules delete "treasury-rule" --global --quiet 2>/dev/null || true
+gcloud compute target-https-proxies delete "treasury-https-proxy" --global --quiet 2>/dev/null || true
+gcloud compute target-http-proxies delete "treasury-proxy" --global --quiet 2>/dev/null || true
+gcloud compute url-maps delete "treasury-url-map" --global --quiet 2>/dev/null || true
+gcloud compute ssl-certificates delete "treasury-ssl-cert" --global --quiet 2>/dev/null || true
+gcloud compute backend-services delete "treasury-backend" --global --quiet 2>/dev/null || true
+gcloud compute network-endpoint-groups delete "treasury-neg" --region="${REGION}" --quiet 2>/dev/null || true
+gcloud compute addresses delete "treasury-lb-ip" --global --quiet 2>/dev/null || true
 
 echo "==> Provisioning Global External HTTP Load Balancer..."
 IP_NAME="treasury-lb-ip"
@@ -181,14 +200,45 @@ gcloud compute backend-services add-backend "${BACKEND_NAME}" \
 
 # 5. Create URL Map, Target Proxy, and Forwarding Rule
 gcloud compute url-maps create "${URL_MAP_NAME}" --default-service "${BACKEND_NAME}" --project "${PROJECT_ID}" 2>/dev/null || true
-gcloud compute target-http-proxies create "treasury-proxy" --url-map "${URL_MAP_NAME}" --project "${PROJECT_ID}" 2>/dev/null || true
+CERT_NAME="treasury-ssl-cert"
+
+gcloud compute ssl-certificates create "${CERT_NAME}" \
+    --domains="${LB_DOMAIN}" \
+    --global \
+    --project "${PROJECT_ID}" 2>/dev/null || true
+
+gcloud compute target-https-proxies create "treasury-https-proxy" \
+    --url-map "${URL_MAP_NAME}" \
+    --ssl-certificates "${CERT_NAME}" \
+    --project "${PROJECT_ID}" 2>/dev/null || true
+
+gcloud compute forwarding-rules delete "treasury-rule" --global --quiet 2>/dev/null || true
 gcloud compute forwarding-rules create "treasury-rule" \
     --load-balancing-scheme=EXTERNAL_MANAGED \
     --address="${IP_NAME}" \
     --global \
-    --target-http-proxy="treasury-proxy" \
-    --ports=80 \
+    --target-https-proxy="treasury-https-proxy" \
+    --ports=443 \
     --project "${PROJECT_ID}" 2>/dev/null || true
+
+echo "==> Resolving Project Number for Project ID: ${PROJECT_ID}..."
+PROJECT_NUMBER=$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')
+
+echo "==> Enabling IAM auth on backend service ${BACKEND_NAME}..."
+gcloud compute backend-services update "${BACKEND_NAME}" \
+    --global \
+    --enable-iam-auth \
+    --project "${PROJECT_ID}"
+
+echo "==> Enabling IAP for ${LB_DOMAIN}..."
+gcloud iap web enable --resource=projects/${PROJECT_NUMBER}/iap_web --project "${PROJECT_ID}" 2>/dev/null || true
+
+echo "==> Granting IAP access to ${IAP_USER}..."
+gcloud iap web add-iam-policy-binding \
+    --resource=projects/${PROJECT_NUMBER}/iap_web \
+    --member="user:${IAP_USER}" \
+    --role="roles/iap.httpsResourceAccessor" \
+    --project="${PROJECT_ID}"
 
 INGESTOR_URL=$(gcloud run services describe "treasury-ingestor" \
   --project "${PROJECT_ID}" --region "${REGION}" \
@@ -218,7 +268,7 @@ gcloud iam service-accounts create "${INVOKER_SA_NAME}" \
     --project="${PROJECT_ID}" 2>/dev/null || true
 
 # 1. Allow the current user to 'actAs' the service account (handle users individually)
-for USER_EMAIL in "${CURRENT_USER}" "assadie@deloitte.nl"; do
+for USER_EMAIL in "${CURRENT_USER}" "${IAP_USER}"; do
   gcloud iam service-accounts add-iam-policy-binding "${INVOKER_SA}" \
       --member="user:${USER_EMAIL}" \
       --role="roles/iam.serviceAccountUser" \
@@ -235,7 +285,7 @@ gcloud iam service-accounts add-iam-policy-binding "${INVOKER_SA}" \
 # 3. Grant the invoker service account permission to call the Cloud Run services
 for SVC in ${DASH_SERVICES}; do
   echo "==> Applying Invoker permissions for ${SVC}..."
-  for MEMBER in "user:${CURRENT_USER}" "user:assadie@deloitte.nl" "serviceAccount:${PUB_SUB_SA}" "serviceAccount:${INVOKER_SA}"; do
+  for MEMBER in "user:${CURRENT_USER}" "user:${IAP_USER}" "serviceAccount:${PUB_SUB_SA}" "serviceAccount:${INVOKER_SA}"; do
     gcloud run services add-iam-policy-binding "${SVC}" \
       --member="${MEMBER}" \
       --role="roles/run.invoker" \
@@ -243,6 +293,13 @@ for SVC in ${DASH_SERVICES}; do
       --project="${PROJECT_ID}" --quiet 2>/dev/null || true
   done
 done
+
+# 4. Enable IAP on the HTTPS load balancer backend service
+echo "==> Enabling IAP on backend service ${BACKEND_NAME}..."
+gcloud compute backend-services update "${BACKEND_NAME}" \
+    --global \
+    --enable-iam-auth \
+    --project "${PROJECT_ID}"
 
 gcloud pubsub subscriptions delete treasury-ingestor-sub --project "${PROJECT_ID}" 2>/dev/null || true
 gcloud pubsub subscriptions create treasury-ingestor-sub \
@@ -255,9 +312,10 @@ echo ""
 echo "========================================================"
 echo " Treasury & Commodity Intelligence Platform — deployed!"
 echo "========================================================"
-echo " All-in-one Platform (Load Balancer): http://${STATIC_IP}"
-echo " Direct Service URL (Backup):         ${DASH_URL}"
+echo " Load Balancer Domain:    https://${LB_DOMAIN}"
+echo " Load Balancer IP:        ${STATIC_IP}"
+echo " Direct Service URL:      ${DASH_URL}"
 echo ""
 echo " Quick test — upload a sample financial CSV:"
 echo "   gsutil cp sample_counterparty.csv gs://${BUCKET}/"
-echo " Then open the dashboard: http://${STATIC_IP}"
+echo " Then open the dashboard via IAP: https://${LB_DOMAIN}"
