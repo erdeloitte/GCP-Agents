@@ -7,6 +7,7 @@ import os
 from dotenv import load_dotenv
 
 from agent_base import call_llm, web_search, build_memo_record, save_memo
+from market_data_helper import build_market_context
 from risk_scorer import RiskScorer
 
 load_dotenv()
@@ -22,17 +23,20 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
 
     data_block = _format_data(financial_data)
 
-    # Search for recent market developments
-    search_results = web_search(f"{counterparty_name} news acquisitions market 2025 2026", max_results=3)
-    search_context = f"\nRECENT MARKET DEVELOPMENTS:\n{search_results}" if search_results else ""
+    # 1. Enriched Online Context (SEC Filings, IR Summary, Ownership)
+    market_context = build_market_context(counterparty_name)
+    
+    # 2. General news search
+    news_results = web_search(f"{counterparty_name} news acquisitions market 2025", max_results=3)
+    search_context = f"\nEXTERNAL MARKET & NEWS CONTEXT:\n{market_context}\n{news_results}"
 
     prompt = (
         "You are a senior market risk analyst for an LNG trading company. "
         "Assess market risk for this counterparty based on:\n"
         "1. Revenue quality and commodity price sensitivity\n"
-        "2. Sector and geographic concentration risks\n"
-        "3. EBITDA margin and cash buffers against price volatility\n"
-        "4. Public vs private status and investor sentiment\n"
+        "2. Ownership structure, ultimate parent stability, and investor relations\n"
+        "3. Sector concentration and EBITDA margin buffers\n"
+        "4. Recent market developments or acquisitions\n"
         "5. Recommended maximum notional trading exposure (USD million)\n\n"
         f"COUNTERPARTY: {counterparty_name}\n"
         f"FINANCIAL DATA:\n{data_block}\n"

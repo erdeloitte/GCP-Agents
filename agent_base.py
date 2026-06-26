@@ -53,7 +53,7 @@ def call_llm(prompt: str, temperature: float = 0.3) -> str:
             response = client.models.generate_content(
                 model=GEMINI_MODEL,
                 contents=prompt,
-                config={"temperature": temperature, "max_output_tokens": 1000},
+                config={"temperature": temperature, "max_output_tokens": 2000},
             )
             text = response.text or ""
             logger.info(f"[LLM] Gemini response: {len(text)} chars")

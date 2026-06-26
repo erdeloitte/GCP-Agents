@@ -113,16 +113,31 @@ def build_llm_context(company_name: str = None) -> str:
     """Build a compact text summary of BQ data to inject as LLM context."""
     rows = get_counterparties(search=company_name)
     if not rows:
-        return "No counterparty data found in the database."
+        return "No internal counterparty data found in the database."
 
-    lines = ["Treasury & Commodity Counterparty Database — Financial Snapshot\n"]
-    for r in rows[:20]:
+    lines = ["Internal Database — Financial & Risk Snapshot\n"]
+    for r in rows[:10]:
         lines.append(
             f"- {r.get('company_name')} ({r.get('country')}, {r.get('sector')}): "
             f"FY{r.get('period_year')} | Revenue ${r.get('revenue_usd_m')}M | "
             f"EBITDA {r.get('ebitda_margin_pct')}% | D/E {r.get('debt_to_equity')} | "
             f"Current Ratio {r.get('current_ratio')} | Rating {r.get('credit_rating')}"
         )
+
+    if company_name:
+        # Include aggregated deposit data (Task 4 visibility)
+        dep = get_deposits_aggregate(company_name)
+        if dep:
+            lines.append(f"\nInternal Deposit Summary for {company_name}:")
+            lines.append(f"- Total USD: {dep.get('total_deposits_usd', 0):,.2f} | Count: {dep.get('num_deposits')} | Last: {dep.get('last_deposit_date')}")
+
+        # Include recent agent assessments
+        memos = get_memos(counterparty_name=company_name)
+        if memos:
+            lines.append(f"\nRecent Risk Assessments for {company_name}:")
+            for m in memos[:2]:
+                lines.append(f"- {m.get('agent_type').upper()} ({m.get('risk_level')}): {m.get('exposure_proposal')}")
+
     return "\n".join(lines)
 
 

@@ -62,17 +62,24 @@ def fetch_sec_filings(company_name: str) -> str:
     does not parse filing content.
     """
     try:
+        # Search for company filings including ownership (owner=include)
         search_url = (
             f"https://www.sec.gov/cgi-bin/browse-edgar"
             f"?action=getcompany&company={urllib.parse.quote(company_name)}"
-            f"&type=10-K%7C10-Q&dateb=&owner=exclude&count=10&search_text="
+            f"&owner=include&count=20"
         )
-        req = urllib.request.Request(search_url, headers={"User-Agent": "Mozilla/5.0"})
+        headers = {"User-Agent": "Deloitte Treasury Bot (internal research)"}
+        req = urllib.request.Request(search_url, headers=headers)
         with urllib.request.urlopen(req, timeout=5) as response:
             html = response.read().decode()
-            # Check for table rows containing filing links — more specific than plain text match
-            if '<td class="small">10-K</td>' in html or '<td class="small">10-Q</td>' in html:
-                return f"SEC filings (10-K/10-Q) found for {company_name} on EDGAR."
+            found = []
+            if '10-K' in html: found.append("Annual Reports (10-K)")
+            if '10-Q' in html: found.append("Quarterly Reports (10-Q)")
+            if 'SC 13D' in html or 'SC 13G' in html: found.append("Beneficial Ownership Filings (13D/G)")
+            if 'Form 4' in html: found.append("Insider Ownership Changes (Form 4)")
+
+            if found:
+                return f"SEC EDGAR Records found for {company_name}: {', '.join(found)}."
     except Exception:
         pass
     return ""
@@ -85,14 +92,24 @@ def build_market_context(company_name: str) -> str:
     ticker = _resolve_ticker(company_name)
 
     if ticker != "PRIVATE":
-        quote = fetch_company_quote(ticker)
-        if quote:
-            parts.append(
-                f"Current Market Data ({ticker}): "
-                f"Price {quote['currency']} {quote['price']}"
-            )
+        try:
+            stock = yf.Ticker(ticker)
+            info = stock.info
+            price = info.get('currentPrice') or info.get('regularMarketPrice')
+            if price:
+                parts.append(f"Market Quote ({ticker}): {info.get('currency', 'USD')} {price:.2f}")
 
-    # SEC filings presence check (non-blocking, best-effort)
+            # Investor Relations / Ownership context
+            summary = info.get('longBusinessSummary')
+            if summary:
+                parts.append(f"Investor Profile Summary: {summary[:500]}...")
+
+            inst_own = info.get('heldPercentInstitutions')
+            if inst_own is not None:
+                parts.append(f"Ownership Structure: {inst_own*100:.1f}% Institutional Ownership.")
+        except Exception:
+            pass
+
     sec_info = fetch_sec_filings(company_name)
     if sec_info:
         parts.append(sec_info)

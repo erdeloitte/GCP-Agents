@@ -268,9 +268,11 @@ def api_chat():
 
     prompt  = (
         "You are a treasury and commodity trading senior analyst. "
-        "Answer the user's question. Use the provided database context to answer questions about the counterparties, "
-        "and utilize your web search grounding tool to lookup any live stock prices, news, external financials, or general industry trends. "
-        "Be quantitative, concise, professional, and flag any credit or liquidity risks.\n\n"
+        "Answer the user's question. Focus on counterparty risk, company ownership, and investor relations.\n"
+        "You have access to:\n"
+        "1. Internal BigQuery Data: Financial snapshots, deposit history, and specialist memos.\n"
+        "2. External Market Sources: SEC filings (reporting/ownership) and live market metrics.\n\n"
+        "Be quantitative, professional, and flag any significant ownership shifts or investor concerns.\n\n"
         f"DATA:\n{context}\n\nQUESTION: {question}"
     )
     return jsonify({"answer": _gemini(prompt)})
