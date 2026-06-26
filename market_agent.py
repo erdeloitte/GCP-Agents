@@ -101,7 +101,6 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
     record["risk_score"] = risk_score_result["score"]
     record["risk_score_breakdown"] = risk_score_result["breakdown"]
 
-    logger.info(f"[MARKET_AGENT] Search queries performed: {record['search_queries']}")
     logger.info(f"[MARKET_AGENT] Saving market memo to BigQuery for {counterparty_name}")
     save_memo(record)
     logger.info(f"[MARKET_AGENT] Market assessment completed for {counterparty_name}")

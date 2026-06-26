@@ -85,9 +85,6 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
     record["risk_score"]             = risk_score_result["score"]
     record["risk_score_breakdown"]   = risk_score_result["breakdown"]
 
-    logger.info(f"[CREDIT_AGENT] Gemini tool calls captured: {len(record['tool_calls'])} calls")
-    logger.info(f"[CREDIT_AGENT] Search queries: {record['search_queries']}")
-
     logger.info(f"[CREDIT_AGENT] Saving credit memo to BigQuery for {counterparty_name}")
     save_memo(record)
     logger.info(f"[CREDIT_AGENT] Credit assessment completed for {counterparty_name}")
