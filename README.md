@@ -199,3 +199,47 @@ gcloud container images delete gcr.io/${PROJECT_ID}/${SERVICE_NAME} --quiet
 | Cloud Run returns 500 | Check logs: `gcloud logging read "resource.type=cloud_run_revision" --limit 20` |
 | No rows in BigQuery after upload | Verify the Pub/Sub subscription exists and points to the correct Cloud Run URL |
 | `BUCKET` or `BQ_DATASET` not set errors | Re-export the environment variables (they don't persist across shell sessions) |
+
+## Gemini / GenAI Tool Invocation Fix
+
+This app uses Gemini with built-in Google tools such as `google_search`. In the current Google GenAI SDK, these tools require an explicit tool configuration:
+
+```python
+config=types.GenerateContentConfig(
+    tools=[{"google_search": {}}],
+    toolConfig=types.ToolConfig(includeServerSideToolInvocations=True),
+    temperature=0.3,
+    max_output_tokens=2048,
+)
+```
+
+Without `toolConfig=types.ToolConfig(includeServerSideToolInvocations=True)`, Gemini returns:
+
+`google.genai.errors.ClientError: 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'Please enable tool_config.include_server_side_tool_invocations to use Built-in tools with Function calling.', 'status': 'INVALID_ARGUMENT'}}`
+
+## Cloud Run Authentication Notes
+
+There are two different access controls involved:
+
+1. Cloud Run service access
+   - Cloud Run can be public (`--allow-unauthenticated`) or private.
+   - For full IAP deployment, services must be private and use Cloud Load Balancing.
+   - This repo now supports `LB_DOMAIN` and `IAP_USER` for IAP-secured access.
+
+2. App-level IAP validation
+   - This app checks for the `X-Goog-IAP-JWT-Assertion` header if `SKIP_IAP_CHECK` is not set.
+   - If you access the Cloud Run URL directly without going through IAP, that header will be missing and the app will reject the request.
+
+So if browser access fails with Google auth, the likely causes are:
+- Cloud Run is private and the user is not authorized as an invoker;
+- The service is behind IAP but the request is not going through the IAP-secured endpoint;
+- The code is expecting the IAP header even though the access URL is direct.
+
+For full IAP deployment, set:
+```bash
+export LB_DOMAIN=your.domain.example
+export IAP_USER=eruizduarte@deloitte.nl
+```
+Then deploy with `./deploy.sh` and access the app through `https://${LB_DOMAIN}`.
+
+If you want direct browser access without IAP, deploy with `--allow-unauthenticated` and set `SKIP_IAP_CHECK=True`.
