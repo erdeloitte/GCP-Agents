@@ -29,8 +29,10 @@ export REGION="${REGION:-europe-west4}"
 export REPO_NAME="${REPO_NAME:-treasury-repo}"
 export DASH_SERVICES="${DASH_SERVICES:-treasury-ingestor treasury-dashboard}"
 export BQ_DATASET="${BQ_DATASET:-treasury_analytics}"
+export IAP_CLIENT_ID="${IAP_CLIENT_ID:-}"
+export IAP_CLIENT_SECRET="${IAP_CLIENT_SECRET:-}"
 export LB_DOMAIN="${LB_DOMAIN:-}"
-export IAP_USER="${IAP_USER:-eruizduarte@deloitte.nl}"
+export IAP_USERS="${IAP_USERS:-eruizduarte@deloitte.nl assadie@deloitte.nl}"
 export GEMINI_API_KEY="${GEMINI_API_KEY:-}"
 export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
 
@@ -224,21 +226,27 @@ gcloud compute forwarding-rules create "treasury-rule" \
 echo "==> Resolving Project Number for Project ID: ${PROJECT_ID}..."
 PROJECT_NUMBER=$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')
 
-echo "==> Enabling IAM auth on backend service ${BACKEND_NAME}..."
-gcloud compute backend-services update "${BACKEND_NAME}" \
-    --global \
-    --enable-iam-auth \
-    --project "${PROJECT_ID}"
+if [[ -n "${IAP_CLIENT_ID}" && -n "${IAP_CLIENT_SECRET}" ]]; then
+  echo "==> Enabling IAP auth on backend service ${BACKEND_NAME}..."
+  gcloud compute backend-services update "${BACKEND_NAME}" \
+      --global \
+      --iap=enabled,oauth2-client-id="${IAP_CLIENT_ID}",oauth2-client-secret="${IAP_CLIENT_SECRET}" \
+      --project "${PROJECT_ID}"
+else
+  echo "WARNING: IAP_CLIENT_ID or IAP_CLIENT_SECRET not set. Skipping IAP backend configuration."
+fi
 
 echo "==> Enabling IAP for ${LB_DOMAIN}..."
 gcloud iap web enable --resource=projects/${PROJECT_NUMBER}/iap_web --project "${PROJECT_ID}" 2>/dev/null || true
 
-echo "==> Granting IAP access to ${IAP_USER}..."
-gcloud iap web add-iam-policy-binding \
-    --resource=projects/${PROJECT_NUMBER}/iap_web \
-    --member="user:${IAP_USER}" \
-    --role="roles/iap.httpsResourceAccessor" \
-    --project="${PROJECT_ID}"
+for USER in ${IAP_USERS}; do
+  echo "==> Granting IAP access to ${USER}..."
+  gcloud iap web add-iam-policy-binding \
+      --resource=projects/${PROJECT_NUMBER}/iap_web \
+      --member="user:${USER}" \
+      --role="roles/iap.httpsResourceAccessor" \
+      --project="${PROJECT_ID}"
+done
 
 INGESTOR_URL=$(gcloud run services describe "treasury-ingestor" \
   --project "${PROJECT_ID}" --region "${REGION}" \
@@ -262,60 +270,4 @@ PUB_SUB_SA="service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com"
 CURRENT_USER=$(gcloud config get-value account)
 
 # Grant Pub/Sub Service Agent permission to invoke the private Cloud Run service.
-echo "==> Setting up service account and permissions..."
-gcloud iam service-accounts create "${INVOKER_SA_NAME}" \
-    --display-name="Treasury Pub/Sub Invoker" \
-    --project="${PROJECT_ID}" 2>/dev/null || true
-
-# 1. Allow the current user to 'actAs' the service account (handle users individually)
-for USER_EMAIL in "${CURRENT_USER}" "${IAP_USER}"; do
-  gcloud iam service-accounts add-iam-policy-binding "${INVOKER_SA}" \
-      --member="user:${USER_EMAIL}" \
-      --role="roles/iam.serviceAccountUser" \
-      --project="${PROJECT_ID}" --quiet 2>/dev/null || true
-done
-
-# 2. Allow Pub/Sub Service Agent to create OIDC tokens for our invoker service account
-echo "==> Granting iam.serviceAccountTokenCreator to Pub/Sub on ${INVOKER_SA}..."
-gcloud iam service-accounts add-iam-policy-binding "${INVOKER_SA}" \
-    --member="serviceAccount:${PUB_SUB_SA}" \
-    --role="roles/iam.serviceAccountTokenCreator" \
-    --project="${PROJECT_ID}" --quiet
-
-# 3. Grant the invoker service account permission to call the Cloud Run services
-for SVC in ${DASH_SERVICES}; do
-  echo "==> Applying Invoker permissions for ${SVC}..."
-  for MEMBER in "user:${CURRENT_USER}" "user:${IAP_USER}" "serviceAccount:${PUB_SUB_SA}" "serviceAccount:${INVOKER_SA}"; do
-    gcloud run services add-iam-policy-binding "${SVC}" \
-      --member="${MEMBER}" \
-      --role="roles/run.invoker" \
-      --region="${REGION}" \
-      --project="${PROJECT_ID}" --quiet 2>/dev/null || true
-  done
-done
-
-# 4. Enable IAP on the HTTPS load balancer backend service
-echo "==> Enabling IAP on backend service ${BACKEND_NAME}..."
-gcloud compute backend-services update "${BACKEND_NAME}" \
-    --global \
-    --enable-iam-auth \
-    --project "${PROJECT_ID}"
-
-gcloud pubsub subscriptions delete treasury-ingestor-sub --project "${PROJECT_ID}" 2>/dev/null || true
-gcloud pubsub subscriptions create treasury-ingestor-sub \
-  --topic treasury-financials \
-  --push-endpoint "${INGESTOR_URL}/ingest" \
-  --push-auth-service-account="${INVOKER_SA}" \
-  --project "${PROJECT_ID}"
-
-echo ""
-echo "========================================================"
-echo " Treasury & Commodity Intelligence Platform — deployed!"
-echo "========================================================"
-echo " Load Balancer Domain:    https://${LB_DOMAIN}"
-echo " Load Balancer IP:        ${STATIC_IP}"
-echo " Direct Service URL:      ${DASH_URL}"
-echo ""
-echo " Quick test — upload a sample financial CSV:"
-echo "   gsutil cp sample_counterparty.csv gs://${BUCKET}/"
-echo " Then open the dashboard via IAP: https://${LB_DOMAIN}"
+echo "==> Setting 

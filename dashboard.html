@@ -593,6 +593,33 @@
       </p>
     </div>
 
+    <!-- Agent Intelligence Workflow (Issue 3) -->
+    <div class="card" style="margin-bottom: 32px; border-left: 4px solid var(--deloitte-green);">
+      <div class="card-title">Agent Intelligence Workflow</div>
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; font-size: 12px; color: var(--text-dim);">
+        <div style="background: var(--gray-50); padding: 10px; border-radius: 4px;">
+          <strong style="color: var(--black);">1. Smart Extraction</strong><br/>OCR & Claude Vision ingest financial docs into BigQuery.
+        </div>
+        <div style="background: var(--gray-50); padding: 10px; border-radius: 4px;">
+          <strong style="color: var(--black);">2. Market Grounding</strong><br/>Gemini searches live news, stock prices, and commodity trends.
+        </div>
+        <div style="background: var(--gray-50); padding: 10px; border-radius: 4px;">
+          <strong style="color: var(--black);">3. Risk Analysis</strong><br/>Specialist agents calculate Leverage, Liquidity, and Exposure.
+        </div>
+        <div style="background: var(--gray-50); padding: 10px; border-radius: 4px;">
+          <strong style="color: var(--black);">4. Orchestration</strong><br/>A lead analyst agent synthesizes all data into a final trade limit.
+        </div>
+      </div>
+    </div>
+
+    <!-- Live Step Monitor -->
+    <div id="agent-step-monitor" style="display:none; margin-bottom: 20px; padding: 15px; background: var(--gray-50); border: 1px solid var(--gray-200); font-size: 12px;">
+      <div style="font-weight: 700; color: var(--deloitte-green); margin-bottom: 8px; text-transform: uppercase; font-size: 10px;">Current Process Steps:</div>
+      <ul id="step-list" style="list-style: none; padding-left: 0; color: var(--text-dim);">
+        <li>Initializing Reasoning Engine...</li>
+      </ul>
+    </div>
+
     <!-- Agent input -->
     <div class="agent-input-section">
       <label for="agent-cp-input">Select or Enter Counterparty Name</label>
@@ -825,6 +852,12 @@ async function runAgent(type) {
   // Load indicators for this counterparty (Task 4)
   loadCounterpartyIndicators(cp);
 
+  // Show step monitor (Issue 3)
+  const monitor = document.getElementById('agent-step-monitor');
+  const stepList = document.getElementById('step-list');
+  monitor.style.display = 'block';
+  stepList.innerHTML = '<li>Connecting to reasoning engine...</li>';
+
   const btns = document.querySelectorAll('.agent-btn');
   btns.forEach(b => { b.disabled = true; b.classList.add('running'); });
 
@@ -833,6 +866,11 @@ async function runAgent(type) {
   out.innerHTML = '<div class="memo-loading"><div class="spinner"></div> Running assessment…</div>';
 
   try {
+    stepList.innerHTML += `<li>Analyzing data for ${esc(cp)}...</li>`;
+    if (type === 'orchestrate') {
+      stepList.innerHTML += '<li>Grounding specialist agents with live web search...</li>';
+    }
+
     const r = await fetch(`/api/agent/${type}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -843,6 +881,7 @@ async function runAgent(type) {
       out.innerHTML = `<div style="color:#dc2626;font-weight:600;">Error: ${esc(d.error)}</div>`;
       return;
     }
+    stepList.innerHTML += '<li>Finalizing executive summary...</li>';
     if (type === 'orchestrate') {
       renderOrchestrate(d);
     } else {
@@ -852,6 +891,7 @@ async function runAgent(type) {
     out.innerHTML = `<div style="color:#dc2626;font-weight:600;">Network error</div>`;
   } finally {
     btns.forEach(b => { b.disabled = false; b.classList.remove('running'); });
+    setTimeout(() => { monitor.style.display = 'none'; }, 2000);
   }
 }
 

@@ -40,8 +40,15 @@ app = Flask(
     static_folder=os.path.dirname(os.path.abspath(__file__)),
     static_url_path=''
 )
-GEMINI_API_KEY   = os.getenv("GEMINI_API_KEY", "")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+
+# Priority: OS Env (Cloud Run) > .env file
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY", "")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY", "")
+
+if not GEMINI_API_KEY:
+    logger.error("CRITICAL: GEMINI_API_KEY is not set. LLM calls will fail.")
+
+logger.info(f"Keys loaded: Gemini={bool(GEMINI_API_KEY)}, Anthropic={bool(ANTHROPIC_API_KEY)}")
 
 # -- IAP Authentication Step --
 @app.before_request
@@ -52,16 +59,18 @@ def verify_iap_token():
     """
     skip = os.getenv("SKIP_IAP_CHECK", "False") == "True"
     # Skip check for local development or explicit overrides
-    if app.debug or os.getenv("FLASK_DEBUG") == "1" or skip:
+    if app.debug or os.getenv("FLASK_DEBUG") == "1" or skip or request.path == "/health":
         return
 
     # IAP injects this header after successful authentication
     iap_jwt = request.headers.get('X-Goog-IAP-JWT-Assertion')
     
     if not iap_jwt:
-        logger.warning("Unauthorized access attempt: Missing IAP JWT header")
+        # During migration/setup, we log a warning but allow if SKIP_IAP_CHECK is not enforced
+        # strictly. For now, let's keep it strict but add a clear log.
+        logger.warning(f"Unauthorized access attempt to {request.path}. Direct Cloud Run URLs are blocked.")
         return jsonify({
-            "error": "Unauthorized: This application must be accessed through the secure corporate proxy."
+            "error": f"Access Denied. You must use the corporate Load Balancer URL: https://{os.getenv('LB_DOMAIN', 'your-domain.com')}"
         }), 401
 
     logger.info("Authenticated request received via IAP")
@@ -99,7 +108,12 @@ def _gemini(prompt: str, temperature: float = 0.3) -> str:
             contents=prompt,
             config=types.GenerateContentConfig(
                 tools=[{"google_search": {}}],
-                tool_config=types.ToolConfig(includeServerSideToolInvocations=True),
+                tool_config=types.ToolConfig(
+                    include_server_side_tool_invocations=True,
+                    function_calling_config=types.FunctionCallingConfig(
+                        mode="AUTO"
+                    )
+                ),
                 temperature=temperature,
                 max_output_tokens=2048,
             ),

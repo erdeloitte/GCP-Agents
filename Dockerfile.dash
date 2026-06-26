@@ -3,6 +3,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends gcc && rm -rf /
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir --default-timeout=100 -r requirements.txt
 COPY . .
 EXPOSE 8080
 CMD gunicorn --bind :${PORT:-8080} --workers 1 --threads 8 --timeout 0 dashboard:app
