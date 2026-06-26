@@ -107,13 +107,6 @@ def _gemini(prompt: str, temperature: float = 0.3) -> str:
             model=GEMINI_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
-                tools=[{"google_search": {}}],
-                tool_config=types.ToolConfig(
-                    include_server_side_tool_invocations=True,
-                    function_calling_config=types.FunctionCallingConfig(
-                        mode="AUTO"
-                    )
-                ),
                 temperature=temperature,
                 max_output_tokens=2048,
             ),
