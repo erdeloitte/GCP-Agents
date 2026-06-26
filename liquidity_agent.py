@@ -1,14 +1,13 @@
 """liquidity_agent.py
-Liquidity & Settlement Risk Agent using CrewAI with Gemini (+ Claude fallback) orchestration.
+Liquidity & Settlement Risk Agent — Direct LLM calls with web search.
 Evaluates payment settlement capability and liquidity risk.
 """
 import logging
 import os
 from dotenv import load_dotenv
 
-from agent_base import get_llm, build_memo_record, save_memo, TAVILY_API_KEY
+from agent_base import call_llm, web_search, build_memo_record, save_memo
 from risk_scorer import RiskScorer
-from crewai import Agent, Task, Crew
 
 load_dotenv()
 
@@ -17,78 +16,42 @@ logging.basicConfig(level=logging.INFO)
 
 
 def run(counterparty_name: str, financial_data: dict) -> dict:
-    """Run the Liquidity & Settlement Risk Agent using CrewAI."""
+    """Run Liquidity & Settlement Risk Agent."""
     logger.info(f"[LIQUIDITY_AGENT] Starting liquidity assessment for {counterparty_name}")
-    logger.info(f"[LIQUIDITY_AGENT] Financial data: Current Ratio={financial_data.get('current_ratio', 0):.2f}x, Revenue=${financial_data.get('revenue_usd_m', 0):.0f}M")
-
-    try:
-        llm = get_llm()
-        logger.info("[LIQUIDITY_AGENT] LLM initialized")
-    except Exception as e:
-        logger.error(f"[LIQUIDITY_AGENT] LLM initialization failed: {e}")
-        return _fallback_response(counterparty_name, "liquidity", str(e))
+    logger.info(f"[LIQUIDITY_AGENT] Current Ratio={financial_data.get('current_ratio', 0):.2f}x, Revenue=${financial_data.get('revenue_usd_m', 0):.0f}M")
 
     data_block = _format_data(financial_data)
 
-    # Define the liquidity analyst agent with web search
-    tools = []
-    if TAVILY_API_KEY:
-        try:
-            from crewai_tools import TavilySearchTool
-            tools = [TavilySearchTool(tavily_api_key=TAVILY_API_KEY)]
-            logger.info("[LIQUIDITY_AGENT] Web search tool enabled (Tavily)")
-        except Exception as e:
-            logger.warning(f"[LIQUIDITY_AGENT] Tavily tool failed: {e}")
+    # Search for working capital and payment metrics
+    search_results = web_search(f"{counterparty_name} working capital cash flow operations 2025", max_results=3)
+    search_context = f"\nRECENT OPERATIONAL DATA:\n{search_results}" if search_results else ""
 
-    liquidity_analyst = Agent(
-        role="Senior Liquidity & Settlement Risk Manager",
-        goal="Assess settlement risk and liquidity adequacy for LNG trades on T+5 to T+10 terms",
-        backstory=(
-            "You are a treasury risk manager on an LNG trading desk with 15+ years experience. "
-            "Your focus is settlement risk—ensuring counterparties can pay for cargo on agreed terms. "
-            "Use web search to find working capital metrics, recent payment issues, and operational metrics."
-        ),
-        llm=llm,
-        tools=tools,
-        verbose=True,
+    prompt = (
+        "You are a treasury risk manager on an LNG trading desk focused on settlement risk. "
+        "Assess whether this counterparty can settle LNG trades on T+5 to T+10 terms based on:\n"
+        "1. Current ratio and short-term solvency\n"
+        "2. Working capital adequacy and cash flow\n"
+        "3. Settlement reliability on standard LNG terms\n"
+        "4. Structural liquidity vulnerabilities\n"
+        "5. Recommended settlement structure: Standard Terms / Advance Payment / Escrow / LC Required\n\n"
+        f"COUNTERPARTY: {counterparty_name}\n"
+        f"FINANCIAL DATA:\n{data_block}\n"
+        f"{search_context}\n\n"
+        "Provide your assessment in this format:\n"
+        "ANALYSIS: [your detailed analysis]\n"
+        "RISK_LEVEL: [LOW|MEDIUM|HIGH|CRITICAL]\n"
+        "SETTLEMENT_TERMS: [Standard|Advance Payment|Escrow|LC Required|Partial Advance]\n"
     )
 
-    assess_task = Task(
-        description=(
-            f"Evaluate liquidity & settlement risk for {counterparty_name}\n\n"
-            f"FINANCIAL DATA:\n{data_block}\n\n"
-            "INSTRUCTIONS:\n"
-            "1. Use web search to find working capital metrics, cash flow, and operational data\n"
-            "2. Analyze current ratio, short-term solvency, and settlement capability\n"
-            "3. Assess payment reliability on standard T+5 to T+10 LNG cargo terms\n"
-            "4. Recommend settlement structure: Standard Terms / Advance Payment / Escrow / LC Required\n"
-            "5. Provide a risk verdict: LOW / MEDIUM / HIGH / CRITICAL\n\n"
-            "Format your response with:\n"
-            "ANALYSIS: [detailed analysis]\n"
-            "RISK_LEVEL: [LOW|MEDIUM|HIGH|CRITICAL]\n"
-            "SETTLEMENT_TERMS: [Standard|Advance Payment|Escrow|LC Required|Partial Advance]\n"
-        ),
-        expected_output="Liquidity risk assessment with settlement terms recommendation",
-        agent=liquidity_analyst,
-    )
+    logger.info(f"[LIQUIDITY_AGENT] Calling LLM with web search context")
+    response = call_llm(prompt, temperature=0.2)
 
-    try:
-        crew = Crew(agents=[liquidity_analyst], tasks=[assess_task], verbose=True)
-        logger.info("[LIQUIDITY_AGENT] Crew created, executing task")
-        result = crew.kickoff()
-        logger.info("[LIQUIDITY_AGENT] Crew execution completed")
-    except Exception as e:
-        logger.error(f"[LIQUIDITY_AGENT] Crew execution failed: {e}")
-        return _fallback_response(counterparty_name, "liquidity", str(e))
+    risk_level, settlement = _parse_verdict(response)
+    memo_text = _strip_verdict_lines(response)
 
-    output_text = str(result)
-    risk_level, settlement = _parse_verdict(output_text)
-    memo_text = _strip_verdict_lines(output_text)
+    logger.info(f"[LIQUIDITY_AGENT] Parsed: Risk={risk_level}, Settlement={settlement}")
 
-    logger.info(f"[LIQUIDITY_AGENT] Parsed verdict: Risk Level={risk_level}, Settlement={settlement}")
-
-    # Quantitative risk score
-    logger.info(f"[LIQUIDITY_AGENT] Calculating quantitative risk score")
+    # Quantitative score
     risk_score_result = RiskScorer.calculate_score(
         company_name=counterparty_name,
         country=financial_data.get("country", ""),
@@ -101,8 +64,6 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
         total_debt_usd_m=financial_data.get("total_debt_usd_m", 0),
     )
 
-    logger.info(f"[LIQUIDITY_AGENT] Risk score: {risk_score_result['score']}/100")
-
     record = build_memo_record(
         counterparty=counterparty_name,
         agent_type="liquidity",
@@ -114,21 +75,9 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
     record["risk_score"] = risk_score_result["score"]
     record["risk_score_breakdown"] = risk_score_result["breakdown"]
 
-    logger.info(f"[LIQUIDITY_AGENT] Saving liquidity memo to BigQuery for {counterparty_name}")
+    logger.info(f"[LIQUIDITY_AGENT] Saving memo and returning")
     save_memo(record)
-    logger.info(f"[LIQUIDITY_AGENT] Liquidity assessment completed")
     return record
-
-
-def _fallback_response(counterparty: str, agent_type: str, error: str) -> dict:
-    """Return a safe fallback response when CrewAI fails."""
-    return build_memo_record(
-        counterparty=counterparty,
-        agent_type=agent_type,
-        risk_level="MEDIUM",
-        memo=f"Agent failed: {error}",
-        exposure_proposal="Pending assessment",
-    )
 
 
 def _format_data(d: dict) -> str:

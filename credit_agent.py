@@ -1,14 +1,13 @@
 """credit_agent.py
-Credit Risk Agent using CrewAI with Gemini (+ Claude fallback) orchestration.
+Credit Risk Agent — Direct LLM calls with web search.
 Evaluates creditworthiness and recommends credit limits.
 """
 import logging
 import os
 from dotenv import load_dotenv
 
-from agent_base import get_llm, build_memo_record, save_memo, TAVILY_API_KEY
+from agent_base import call_llm, web_search, build_memo_record, save_memo
 from risk_scorer import RiskScorer
-from crewai import Agent, Task, Crew
 
 load_dotenv()
 
@@ -17,82 +16,44 @@ logging.basicConfig(level=logging.INFO)
 
 
 def run(counterparty_name: str, financial_data: dict) -> dict:
-    """Run the Credit Risk Agent for a given counterparty using CrewAI."""
+    """Run Credit Risk Agent for a given counterparty."""
     logger.info(f"[CREDIT_AGENT] Starting credit assessment for {counterparty_name}")
-    logger.info(f"[CREDIT_AGENT] Financial data: Revenue=${financial_data.get('revenue_usd_m', 0):.0f}M, Debt/Equity={financial_data.get('debt_to_equity', 0):.2f}x")
-
-    try:
-        llm = get_llm()
-        logger.info("[CREDIT_AGENT] LLM initialized")
-    except Exception as e:
-        logger.error(f"[CREDIT_AGENT] LLM initialization failed: {e}")
-        return _fallback_response(counterparty_name, "credit", str(e))
+    logger.info(f"[CREDIT_AGENT] Revenue=${financial_data.get('revenue_usd_m', 0):.0f}M, Debt/Equity={financial_data.get('debt_to_equity', 0):.2f}x")
 
     data_block = _format_data(financial_data)
 
-    # Define the credit analyst agent with web search
-    tools = []
-    if TAVILY_API_KEY:
-        try:
-            from crewai_tools import TavilySearchTool
-            tools = [TavilySearchTool(tavily_api_key=TAVILY_API_KEY)]
-            logger.info("[CREDIT_AGENT] Web search tool enabled (Tavily)")
-        except Exception as e:
-            logger.warning(f"[CREDIT_AGENT] Tavily tool failed: {e}")
+    # Search for credit ratings and payment history
+    search_results = web_search(f"{counterparty_name} credit rating financials payment history 2025", max_results=3)
+    search_context = f"\nRECENT CREDIT INFORMATION:\n{search_results}" if search_results else ""
 
-    credit_analyst = Agent(
-        role="Senior Credit Analyst",
-        goal="Assess creditworthiness and recommend credit limits for LNG counterparties",
-        backstory=(
-            "You are a credit risk specialist with 20+ years in trade finance. "
-            "Your expertise is evaluating counterparty creditworthiness, debt serviceability, "
-            "and payment reliability. Use web search to find credit ratings, recent news, "
-            "financial disclosures, and payment history."
-        ),
-        llm=llm,
-        tools=tools,
-        verbose=True,
+    prompt = (
+        "You are a senior credit analyst specializing in trade finance and counterparty risk. "
+        "Assess creditworthiness for this counterparty based on:\n"
+        "1. Credit rating and implied default risk\n"
+        "2. Leverage analysis and debt serviceability\n"
+        "3. Net income sustainability and cash flow\n"
+        "4. Recommended unsecured credit limit for LNG exposure (USD million)\n"
+        "5. Recommended payment terms: Open Credit / Letter of Credit / Prepayment\n\n"
+        f"COUNTERPARTY: {counterparty_name}\n"
+        f"FINANCIAL DATA:\n{data_block}\n"
+        f"{search_context}\n\n"
+        "Provide your assessment in this format:\n"
+        "ANALYSIS: [your detailed analysis]\n"
+        "RISK_LEVEL: [LOW|MEDIUM|HIGH|CRITICAL]\n"
+        "CREDIT_LIMIT: [USD XXM]\n"
+        "PAYMENT_TERMS: [Open Credit|Letter of Credit|Prepayment|Partial LC]\n"
     )
 
-    assess_task = Task(
-        description=(
-            f"Evaluate credit risk for {counterparty_name}\n\n"
-            f"FINANCIAL DATA:\n{data_block}\n\n"
-            "INSTRUCTIONS:\n"
-            "1. Use web search to find credit ratings, recent news, and financial disclosures\n"
-            "2. Analyze leverage (Debt/Equity), debt service coverage, and cash flow\n"
-            "3. Assess payment reliability and default risk\n"
-            "4. Recommend a credit limit in USD million\n"
-            "5. Recommend payment terms: Open Credit / Letter of Credit / Prepayment\n"
-            "6. Provide a risk verdict: LOW / MEDIUM / HIGH / CRITICAL\n\n"
-            "Format your response with:\n"
-            "ANALYSIS: [detailed analysis]\n"
-            "RISK_LEVEL: [LOW|MEDIUM|HIGH|CRITICAL]\n"
-            "CREDIT_LIMIT: [USD XXM]\n"
-            "PAYMENT_TERMS: [Open Credit|Letter of Credit|Prepayment|Partial LC]\n"
-        ),
-        expected_output="Credit risk assessment with credit limit and payment terms recommendation",
-        agent=credit_analyst,
-    )
+    logger.info(f"[CREDIT_AGENT] Calling LLM with web search context")
+    response = call_llm(prompt, temperature=0.3)
 
-    try:
-        crew = Crew(agents=[credit_analyst], tasks=[assess_task], verbose=True)
-        logger.info("[CREDIT_AGENT] Crew created, executing task")
-        result = crew.kickoff()
-        logger.info("[CREDIT_AGENT] Crew execution completed")
-    except Exception as e:
-        logger.error(f"[CREDIT_AGENT] Crew execution failed: {e}")
-        return _fallback_response(counterparty_name, "credit", str(e))
-
-    output_text = str(result)
-    risk_level, credit_limit, payment_terms = _parse_verdict(output_text)
-    memo_text = _strip_verdict_lines(output_text)
+    risk_level, credit_limit, payment_terms = _parse_verdict(response)
+    memo_text = _strip_verdict_lines(response)
     exposure_proposal = f"{credit_limit} | {payment_terms}"
 
-    logger.info(f"[CREDIT_AGENT] Parsed verdict: Risk Level={risk_level}, Credit Limit={credit_limit}, Terms={payment_terms}")
+    logger.info(f"[CREDIT_AGENT] Parsed: Risk={risk_level}, Limit={credit_limit}, Terms={payment_terms}")
 
-    # Quantitative risk score
-    logger.info(f"[CREDIT_AGENT] Calculating quantitative risk score")
+    # Quantitative score
     risk_score_result = RiskScorer.calculate_score(
         company_name=counterparty_name,
         country=financial_data.get("country", ""),
@@ -104,8 +65,6 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
         revenue_usd_m=financial_data.get("revenue_usd_m", 0),
         total_debt_usd_m=financial_data.get("total_debt_usd_m", 0),
     )
-
-    logger.info(f"[CREDIT_AGENT] Risk score: {risk_score_result['score']}/100")
 
     record = build_memo_record(
         counterparty=counterparty_name,
@@ -119,21 +78,9 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
     record["risk_score"] = risk_score_result["score"]
     record["risk_score_breakdown"] = risk_score_result["breakdown"]
 
-    logger.info(f"[CREDIT_AGENT] Saving credit memo to BigQuery for {counterparty_name}")
+    logger.info(f"[CREDIT_AGENT] Saving memo and returning")
     save_memo(record)
-    logger.info(f"[CREDIT_AGENT] Credit assessment completed")
     return record
-
-
-def _fallback_response(counterparty: str, agent_type: str, error: str) -> dict:
-    """Return a safe fallback response when CrewAI fails."""
-    return build_memo_record(
-        counterparty=counterparty,
-        agent_type=agent_type,
-        risk_level="MEDIUM",
-        memo=f"Agent failed: {error}",
-        exposure_proposal="Pending assessment",
-    )
 
 
 def _format_data(d: dict) -> str:

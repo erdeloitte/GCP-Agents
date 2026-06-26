@@ -1,14 +1,13 @@
 """market_agent.py
-Market Risk Agent using CrewAI with Gemini (+ Claude fallback) orchestration.
+Market Risk Agent — Direct LLM calls with web search.
 Assesses commodity price sensitivity and trading exposure limits.
 """
 import logging
 import os
 from dotenv import load_dotenv
 
-from agent_base import get_llm, build_memo_record, save_memo, TAVILY_API_KEY
+from agent_base import call_llm, web_search, build_memo_record, save_memo
 from risk_scorer import RiskScorer
-from crewai import Agent, Task, Crew
 
 load_dotenv()
 
@@ -17,79 +16,42 @@ logging.basicConfig(level=logging.INFO)
 
 
 def run(counterparty_name: str, financial_data: dict) -> dict:
-    """Run the Market Risk Agent for a given counterparty using CrewAI."""
+    """Run Market Risk Agent for a given counterparty."""
     logger.info(f"[MARKET_AGENT] Starting market risk assessment for {counterparty_name}")
-    logger.info(f"[MARKET_AGENT] Financial data: Revenue=${financial_data.get('revenue_usd_m', 0):.0f}M, Sector={financial_data.get('sector', 'N/A')}")
-
-    try:
-        llm = get_llm()
-        logger.info("[MARKET_AGENT] LLM initialized")
-    except Exception as e:
-        logger.error(f"[MARKET_AGENT] LLM initialization failed: {e}")
-        return _fallback_response(counterparty_name, "market", str(e))
+    logger.info(f"[MARKET_AGENT] Revenue=${financial_data.get('revenue_usd_m', 0):.0f}M, Sector={financial_data.get('sector', 'N/A')}")
 
     data_block = _format_data(financial_data)
 
-    # Define the market analyst agent with web search capability
-    tools = []
-    if TAVILY_API_KEY:
-        try:
-            from crewai_tools import TavilySearchTool
-            tools = [TavilySearchTool(tavily_api_key=TAVILY_API_KEY)]
-            logger.info("[MARKET_AGENT] Web search tool enabled (Tavily)")
-        except Exception as e:
-            logger.warning(f"[MARKET_AGENT] Tavily tool failed: {e}")
+    # Search for recent market developments
+    search_results = web_search(f"{counterparty_name} news acquisitions market 2025 2026", max_results=3)
+    search_context = f"\nRECENT MARKET DEVELOPMENTS:\n{search_results}" if search_results else ""
 
-    market_analyst = Agent(
-        role="Senior Market Risk Analyst",
-        goal="Assess commodity price exposure and market risk for the counterparty",
-        backstory=(
-            "You are a treasury risk manager with 15+ years in commodity trading. "
-            "Your job is to analyze counterparty exposure to market price movements, "
-            "sector concentration, and revenue quality. Use web search to find recent news, "
-            "acquisitions, and market developments."
-        ),
-        llm=llm,
-        tools=tools,
-        verbose=True,
+    prompt = (
+        "You are a senior market risk analyst for an LNG trading company. "
+        "Assess market risk for this counterparty based on:\n"
+        "1. Revenue quality and commodity price sensitivity\n"
+        "2. Sector and geographic concentration risks\n"
+        "3. EBITDA margin and cash buffers against price volatility\n"
+        "4. Public vs private status and investor sentiment\n"
+        "5. Recommended maximum notional trading exposure (USD million)\n\n"
+        f"COUNTERPARTY: {counterparty_name}\n"
+        f"FINANCIAL DATA:\n{data_block}\n"
+        f"{search_context}\n\n"
+        "Provide your assessment in this format:\n"
+        "ANALYSIS: [your detailed analysis]\n"
+        "RISK_LEVEL: [LOW|MEDIUM|HIGH|CRITICAL]\n"
+        "EXPOSURE_LIMIT: [USD XXM]\n"
     )
 
-    assess_task = Task(
-        description=(
-            f"Analyze market risk for {counterparty_name}\n\n"
-            f"FINANCIAL DATA:\n{data_block}\n\n"
-            "INSTRUCTIONS:\n"
-            "1. Use web search to find recent news, acquisitions, and market developments for this company\n"
-            "2. Assess revenue quality, commodity price sensitivity, and business model stability\n"
-            "3. Evaluate geographic and sector concentration risks\n"
-            "4. Recommend a maximum notional trading exposure in USD million\n"
-            "5. Provide a risk verdict: LOW / MEDIUM / HIGH / CRITICAL\n\n"
-            "Format your response with:\n"
-            "ANALYSIS: [detailed analysis]\n"
-            "RISK_LEVEL: [LOW|MEDIUM|HIGH|CRITICAL]\n"
-            "EXPOSURE_LIMIT: [USD XXM]\n"
-        ),
-        expected_output="Market risk assessment with risk level and exposure recommendation",
-        agent=market_analyst,
-    )
+    logger.info(f"[MARKET_AGENT] Calling LLM with web search context")
+    response = call_llm(prompt, temperature=0.4)
 
-    try:
-        crew = Crew(agents=[market_analyst], tasks=[assess_task], verbose=True)
-        logger.info("[MARKET_AGENT] Crew created, executing task")
-        result = crew.kickoff()
-        logger.info("[MARKET_AGENT] Crew execution completed")
-    except Exception as e:
-        logger.error(f"[MARKET_AGENT] Crew execution failed: {e}")
-        return _fallback_response(counterparty_name, "market", str(e))
+    risk_level, exposure = _parse_verdict(response)
+    memo_text = _strip_verdict_lines(response)
 
-    output_text = str(result)
-    risk_level, exposure = _parse_verdict(output_text)
-    memo_text = _strip_verdict_lines(output_text)
+    logger.info(f"[MARKET_AGENT] Parsed: Risk={risk_level}, Exposure={exposure}")
 
-    logger.info(f"[MARKET_AGENT] Parsed verdict: Risk Level={risk_level}, Exposure={exposure}")
-
-    # Quantitative risk score
-    logger.info(f"[MARKET_AGENT] Calculating quantitative risk score")
+    # Quantitative score
     risk_score_result = RiskScorer.calculate_score(
         company_name=counterparty_name,
         country=financial_data.get("country", ""),
@@ -102,8 +64,6 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
         total_debt_usd_m=financial_data.get("total_debt_usd_m", 0),
     )
 
-    logger.info(f"[MARKET_AGENT] Risk score: {risk_score_result['score']}/100")
-
     record = build_memo_record(
         counterparty=counterparty_name,
         agent_type="market",
@@ -114,21 +74,9 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
     record["risk_score"] = risk_score_result["score"]
     record["risk_score_breakdown"] = risk_score_result["breakdown"]
 
-    logger.info(f"[MARKET_AGENT] Saving market memo to BigQuery for {counterparty_name}")
+    logger.info(f"[MARKET_AGENT] Saving memo and returning")
     save_memo(record)
-    logger.info(f"[MARKET_AGENT] Market assessment completed")
     return record
-
-
-def _fallback_response(counterparty: str, agent_type: str, error: str) -> dict:
-    """Return a safe fallback response when CrewAI fails."""
-    return build_memo_record(
-        counterparty=counterparty,
-        agent_type=agent_type,
-        risk_level="MEDIUM",
-        memo=f"Agent failed: {error}",
-        exposure_proposal="Pending assessment",
-    )
 
 
 def _format_data(d: dict) -> str:
@@ -159,8 +107,5 @@ def _parse_verdict(text: str) -> tuple[str, str]:
 
 
 def _strip_verdict_lines(text: str) -> str:
-    lines = [
-        l for l in text.splitlines()
-        if "RISK_LEVEL:" not in l and "EXPOSURE_LIMIT:" not in l
-    ]
+    lines = [l for l in text.splitlines() if "RISK_LEVEL:" not in l and "EXPOSURE_LIMIT:" not in l]
     return "\n".join(lines).strip()
