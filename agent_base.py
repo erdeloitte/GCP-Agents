@@ -43,29 +43,72 @@ TICKER_MAP: dict[str, str] = {
 }
 
 
-def call_llm(prompt: str, temperature: float = 0.3) -> str:
-    """Call Gemini directly. Fallback to Claude if Gemini fails."""
+# ── Standardized reporting ─────────────────────────────────────────────────────
+# Every agent appends this so memos stay consistent, concise, and actionable.
+STANDARD_REPORT_INSTRUCTION = (
+    "REPORTING RULES (mandatory):\n"
+    "- Write a MAXIMUM of 6 concise sentences summarizing the key findings.\n"
+    "- Be quantitative: cite the specific ratios, figures, or facts that drive the verdict.\n"
+    "- End with a clear, actionable conclusion on exposure/credit capacity.\n"
+    "- No bullet lists, no headings, no preamble — just the concise narrative followed "
+    "by the required verdict lines.\n"
+)
+
+
+def summarize_to_sentences(text: str, max_sentences: int = 6) -> str:
+    """Trim a memo to at most `max_sentences` sentences as a safety net.
+
+    The prompt already asks the model for <= 6 sentences; this guarantees it even
+    if the model over-produces. Sentence boundaries are detected on . ! ? followed
+    by whitespace, preserving the trailing punctuation.
+    """
+    import re
+    if not text:
+        return text
+    parts = re.split(r'(?<=[.!?])\s+', text.strip())
+    parts = [p for p in parts if p.strip()]
+    if len(parts) <= max_sentences:
+        return text.strip()
+    trimmed = " ".join(parts[:max_sentences]).strip()
+    logger.info(f"[REPORT] Trimmed memo from {len(parts)} to {max_sentences} sentences")
+    return trimmed
+
+
+def call_llm(prompt: str, temperature: float = 0.3, trace_label: str = "LLM") -> str:
+    """Call Gemini directly, falling back to Claude. Logs full reasoning trace.
+
+    Args:
+        prompt: The full prompt.
+        temperature: Sampling temperature.
+        trace_label: A label (e.g. "MARKET") tagging traceability logs so each
+            agent's reasoning is identifiable in the logs.
+    """
+    # Traceability: log a preview of what the model is being asked to reason over.
+    logger.info(f"[{trace_label}] Prompt dispatched ({len(prompt)} chars). Preview: "
+                f"{prompt[:280].replace(chr(10), ' ')}…")
+
     if GEMINI_API_KEY:
         try:
             from google import genai
             client = genai.Client(api_key=GEMINI_API_KEY)
-            logger.info(f"[LLM] Calling Gemini ({GEMINI_MODEL})")
+            logger.info(f"[{trace_label}] Reasoning via Gemini ({GEMINI_MODEL}), temp={temperature}")
             response = client.models.generate_content(
                 model=GEMINI_MODEL,
                 contents=prompt,
                 config={"temperature": temperature, "max_output_tokens": 2000},
             )
             text = response.text or ""
-            logger.info(f"[LLM] Gemini response: {len(text)} chars")
+            logger.info(f"[{trace_label}] Gemini reasoning output ({len(text)} chars): "
+                        f"{text[:500].replace(chr(10), ' ')}…")
             return text.strip()
         except Exception as e:
-            logger.warning(f"[LLM] Gemini failed: {e}, trying Claude fallback")
+            logger.warning(f"[{trace_label}] Gemini failed: {e} — falling back to Claude")
 
     if ANTHROPIC_API_KEY:
         try:
             from anthropic import Anthropic
             client = Anthropic(api_key=ANTHROPIC_API_KEY)
-            logger.info("[LLM] Calling Claude (fallback)")
+            logger.info(f"[{trace_label}] Reasoning via Claude (fallback), temp={temperature}")
             response = client.messages.create(
                 model="claude-haiku-4-5@20251001",
                 max_tokens=2048,
@@ -73,10 +116,11 @@ def call_llm(prompt: str, temperature: float = 0.3) -> str:
                 messages=[{"role": "user", "content": prompt}],
             )
             text = response.content[0].text if response.content else ""
-            logger.info(f"[LLM] Claude response: {len(text)} chars")
+            logger.info(f"[{trace_label}] Claude reasoning output ({len(text)} chars): "
+                        f"{text[:500].replace(chr(10), ' ')}…")
             return text.strip()
         except Exception as e:
-            logger.error(f"[LLM] Claude failed: {e}")
+            logger.error(f"[{trace_label}] Claude failed: {e}")
 
     return "ERROR: No LLM available (set GEMINI_API_KEY or ANTHROPIC_API_KEY)"
 
@@ -107,16 +151,9 @@ def web_search(query: str, max_results: int = 3) -> str:
         return ""
 
 
-## Testing apis
-_gemmini = call_llm("What is AI in one sentence", temperature=0.3)
-_claude = call_llm("What is AI in one sentence", temperature=0.3 )
-
-print(f'gemmini: {_gemmini}')
-print(f'claude:, {_claude}')
-
-def call_gemini(prompt: str, temperature: float = 0.3) -> str:
+def call_gemini(prompt: str, temperature: float = 0.3, trace_label: str = "LLM") -> str:
     """Alias for call_llm (backward compatibility)."""
-    return call_llm(prompt, temperature)
+    return call_llm(prompt, temperature, trace_label=trace_label)
 
 
 def save_memo(record: dict) -> None:

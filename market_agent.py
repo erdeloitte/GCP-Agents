@@ -6,7 +6,10 @@ import logging
 import os
 from dotenv import load_dotenv
 
-from agent_base import call_llm, web_search, build_memo_record, save_memo
+from agent_base import (
+    call_llm, web_search, build_memo_record, save_memo,
+    STANDARD_REPORT_INSTRUCTION, summarize_to_sentences,
+)
 from market_data_helper import build_market_context
 from risk_scorer import RiskScorer
 
@@ -41,17 +44,17 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
         f"COUNTERPARTY: {counterparty_name}\n"
         f"FINANCIAL DATA:\n{data_block}\n"
         f"{search_context}\n\n"
-        "Provide your assessment in this format:\n"
-        "ANALYSIS: [your detailed analysis]\n"
+        f"{STANDARD_REPORT_INSTRUCTION}\n"
+        "Provide your assessment as the concise narrative, then exactly these two lines:\n"
         "RISK_LEVEL: [LOW|MEDIUM|HIGH|CRITICAL]\n"
         "EXPOSURE_LIMIT: [USD XXM]\n"
     )
 
     logger.info(f"[MARKET_AGENT] Calling LLM with web search context")
-    response = call_llm(prompt, temperature=0.4)
+    response = call_llm(prompt, temperature=0.4, trace_label="MARKET")
 
     risk_level, exposure = _parse_verdict(response)
-    memo_text = _strip_verdict_lines(response)
+    memo_text = summarize_to_sentences(_strip_verdict_lines(response), max_sentences=6)
 
     logger.info(f"[MARKET_AGENT] Parsed: Risk={risk_level}, Exposure={exposure}")
 

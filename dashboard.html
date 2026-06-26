@@ -549,10 +549,88 @@
       text-decoration: underline;
     }
 
+    /* Top-level navigation */
+    .main-nav {
+      background: var(--gray-50);
+      border-bottom: 1px solid var(--gray-200);
+      padding: 0 24px;
+    }
+    .main-nav-inner {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      gap: 4px;
+    }
+    .nav-tab {
+      padding: 16px 24px;
+      background: none;
+      border: none;
+      border-bottom: 3px solid transparent;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .nav-tab:hover { color: var(--black); }
+    .nav-tab.active {
+      color: var(--deloitte-green);
+      border-bottom-color: var(--deloitte-green);
+    }
+
+    /* Liquidity modelling view */
+    .liq-container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 40px 24px;
+    }
+    .liq-grid {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 32px;
+    }
+    .liq-controls input[type=number],
+    .liq-controls input[type=text] {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--gray-200);
+      font-size: 13px;
+      font-family: inherit;
+      margin-bottom: 12px;
+      outline: none;
+    }
+    .liq-controls input:focus { border-color: var(--deloitte-green); }
+    .liq-controls label {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.8px;
+      text-transform: uppercase; color: var(--gray-600);
+      display: block; margin-bottom: 6px;
+    }
+    .liq-run-btn {
+      width: 100%; padding: 14px; background: var(--black); color: var(--white);
+      border: none; font-weight: 800; font-size: 12px; letter-spacing: 0.8px;
+      text-transform: uppercase; cursor: pointer; transition: background 0.2s;
+    }
+    .liq-run-btn:hover { background: var(--deloitte-green); }
+    .liq-run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .liq-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; }
+    .liq-kpi { padding: 16px; border: 1px solid var(--gray-200); text-align: center; }
+    .liq-kpi-label { font-size: 10px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 6px; }
+    .liq-kpi-value { font-size: 22px; font-weight: 800; color: var(--deloitte-green); font-family: 'Courier New', monospace; }
+    .liq-kpi-value.neg { color: #dc2626; }
+    .liq-commentary {
+      padding: 20px; background: var(--gray-50); border-left: 4px solid var(--deloitte-green);
+      font-size: 13px; line-height: 1.7; color: var(--text); margin-bottom: 24px;
+    }
+    .liq-file-list { font-size: 11px; color: var(--text-dim); margin-top: 8px; }
+
     @media (max-width: 1024px) {
       .container { grid-template-columns: 1fr; }
       .agent-buttons { grid-template-columns: 1fr 1fr; }
       .sidebar { gap: 16px; }
+      .liq-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -577,8 +655,16 @@
   </div>
 </div>
 
+<!-- Top-level navigation -->
+<div class="main-nav">
+  <div class="main-nav-inner">
+    <button class="nav-tab active" id="nav-risk" onclick="switchView('risk')">Counterparty Risk</button>
+    <button class="nav-tab" id="nav-liquidity" onclick="switchView('liquidity')">Liquidity Modelling</button>
+  </div>
+</div>
+
 <!-- Main -->
-<div class="container">
+<div class="container" id="view-risk">
 
   <!-- Left: Agents -->
   <div class="main">
@@ -775,6 +861,68 @@ total_debt_usd_m, current_ratio</pre>
       </div>
     </div>
 
+  </div>
+</div>
+
+<!-- Liquidity Modelling View -->
+<div class="liq-container" id="view-liquidity" style="display:none;">
+  <div class="hero" style="margin-bottom: 32px;">
+    <h2>Liquidity Modelling — 3-Week Cashflow Projection</h2>
+    <p>
+      Upload operational files (account receivables, payables, taxes, maturity of financial swaps,
+      margin requirements, deposits, trades, interest) and project the next 21 days of cashflow.
+      The engine computes a daily running balance and weekly summary; a treasury commentary
+      highlights funding gaps and actions.
+    </p>
+  </div>
+
+  <div class="liq-grid">
+    <!-- Controls -->
+    <div class="card liq-controls">
+      <div class="card-title">Inputs</div>
+
+      <label for="liq-opening">Opening Cash Balance (USD)</label>
+      <input type="number" id="liq-opening" value="0" step="1000" />
+
+      <label for="liq-cp">Counterparty (optional — pulls BQ deposits)</label>
+      <input type="text" id="liq-cp" placeholder="e.g. Glencore" list="agent-cp-list" />
+
+      <label>Operational File(s)</label>
+      <div class="upload-zone" id="liq-upload-zone" onclick="document.getElementById('liq-file-input').click()">
+        <div class="upload-label">
+          <strong>Click to upload</strong> one or more files<br/>
+          CSV or XLSX (receivables, payables, taxes, swaps, margin…)
+        </div>
+        <input type="file" id="liq-file-input" accept=".xlsx,.csv,.txt" multiple style="display:none;" />
+      </div>
+      <div class="liq-file-list" id="liq-file-list"></div>
+
+      <button class="liq-run-btn" id="liq-run-btn" style="margin-top:16px;" onclick="runLiquidityModel()">
+        Run 3-Week Projection
+      </button>
+
+      <details style="margin-top:12px;">
+        <summary>Expected file format</summary>
+        <pre>date, category, amount, direction
+2026-06-28, Receivable, 500000, inflow
+2026-06-30, Payable, 220000, outflow
+2026-07-02, Tax, 90000, outflow
+2026-07-05, Swap, 150000, inflow
+2026-07-10, Margin, 75000, outflow</pre>
+      </details>
+    </div>
+
+    <!-- Output -->
+    <div class="main">
+      <div class="card">
+        <div class="card-title">Projection Output</div>
+        <div id="liq-output">
+          <div style="color: var(--text-dim); font-size: 13px; padding: 20px 0;">
+            Upload file(s) and run a projection to see the cashflow forecast, chart, and commentary.
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1158,6 +1306,177 @@ function switchTab(tab) {
   event.target.classList.add('active');
   document.getElementById('tab-' + tab).classList.add('active');
   if (tab === 'all') loadCounterparties();
+}
+
+/* ── Top-level view switching ──────────────────────────────────────────── */
+function switchView(view) {
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('nav-' + view).classList.add('active');
+  document.getElementById('view-risk').style.display = (view === 'risk') ? '' : 'none';
+  document.getElementById('view-liquidity').style.display = (view === 'liquidity') ? 'block' : 'none';
+}
+
+/* ── Liquidity Modelling ───────────────────────────────────────────────── */
+let liqFiles = [];
+
+(function initLiqUpload() {
+  const zone = document.getElementById('liq-upload-zone');
+  const input = document.getElementById('liq-file-input');
+  if (!zone || !input) return;
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault(); zone.classList.remove('drag-over');
+    liqFiles = Array.from(e.dataTransfer.files); renderLiqFileList();
+  });
+  input.addEventListener('change', () => { liqFiles = Array.from(input.files); renderLiqFileList(); });
+})();
+
+function renderLiqFileList() {
+  const el = document.getElementById('liq-file-list');
+  if (!liqFiles.length) { el.textContent = ''; return; }
+  el.innerHTML = '<strong>Selected:</strong> ' + liqFiles.map(f => esc(f.name)).join(', ');
+}
+
+async function runLiquidityModel() {
+  if (!liqFiles.length) { alert('Please upload at least one file.'); return; }
+  const btn = document.getElementById('liq-run-btn');
+  const out = document.getElementById('liq-output');
+  btn.disabled = true;
+  out.innerHTML = '<div class="memo-loading"><div class="spinner"></div> Building 3-week projection…</div>';
+
+  const fd = new FormData();
+  liqFiles.forEach(f => fd.append('files', f));
+  fd.append('opening_balance', document.getElementById('liq-opening').value || '0');
+  fd.append('counterparty', document.getElementById('liq-cp').value.trim());
+
+  try {
+    const r = await fetch('/api/liquidity-model', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) { out.innerHTML = `<div style="color:#dc2626;font-weight:600;">Error: ${esc(d.error)}</div>`; return; }
+    renderLiquidityResult(d);
+  } catch(e) {
+    out.innerHTML = '<div style="color:#dc2626;font-weight:600;">Network error</div>';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderLiquidityResult(d) {
+  const out = document.getElementById('liq-output');
+  const closing = d.closing_balance ?? 0;
+  const minBal = d.min_balance ?? 0;
+  const negClass = v => (v < 0 ? ' neg' : '');
+
+  // KPIs
+  let html = `
+    <div class="liq-kpis">
+      <div class="liq-kpi">
+        <div class="liq-kpi-label">Opening Balance</div>
+        <div class="liq-kpi-value">${formatNum(d.opening_balance)}</div>
+      </div>
+      <div class="liq-kpi">
+        <div class="liq-kpi-label">Projected Closing (Day 21)</div>
+        <div class="liq-kpi-value${negClass(closing)}">${formatNum(closing)}</div>
+      </div>
+      <div class="liq-kpi">
+        <div class="liq-kpi-label">Lowest Balance</div>
+        <div class="liq-kpi-value${negClass(minBal)}">${formatNum(minBal)}</div>
+      </div>
+    </div>`;
+
+  // Commentary
+  if (d.commentary) {
+    html += `<div class="liq-commentary"><strong>Treasury Commentary:</strong><br>${esc(d.commentary).replace(/\n/g,'<br>')}</div>`;
+  }
+
+  // Chart (daily balance line + weekly net bars)
+  html += `<div style="margin-bottom:24px;">${buildLiqChart(d)}</div>`;
+
+  // Weekly table
+  html += `<table style="margin-bottom:24px;">
+    <thead><tr><th>Week</th><th>Period</th><th>Inflows</th><th>Outflows</th><th>Net</th><th>Closing Balance</th></tr></thead>
+    <tbody>`;
+  (d.weeks || []).forEach(w => {
+    html += `<tr>
+      <td><strong>${esc(w.week)}</strong></td>
+      <td>${esc(w.period)}</td>
+      <td>${formatNum(w.inflows)}</td>
+      <td>${formatNum(w.outflows)}</td>
+      <td style="color:${w.net < 0 ? '#dc2626' : '#059669'};font-weight:700;">${formatNum(w.net)}</td>
+      <td style="color:${w.closing_balance < 0 ? '#dc2626' : 'inherit'};font-weight:700;">${formatNum(w.closing_balance)}</td>
+    </tr>`;
+  });
+  html += `</tbody></table>`;
+
+  // Net by category
+  const cats = d.by_category || {};
+  if (Object.keys(cats).length) {
+    html += `<div class="card-title" style="margin-top:8px;">Net Cashflow by Category</div>
+      <table><thead><tr><th>Category</th><th>Net (USD)</th></tr></thead><tbody>`;
+    Object.entries(cats).forEach(([k, v]) => {
+      html += `<tr><td>${esc(k)}</td><td style="color:${v < 0 ? '#dc2626' : '#059669'};font-weight:700;">${formatNum(v)}</td></tr>`;
+    });
+    html += `</tbody></table>`;
+  }
+
+  if (d.rows_out_of_window) {
+    html += `<div style="font-size:11px;color:var(--text-dim);margin-top:12px;">Note: ${d.rows_out_of_window} row(s) fell outside the 21-day window and were excluded.</div>`;
+  }
+
+  out.innerHTML = html;
+}
+
+/* Lightweight inline SVG chart — no external dependencies. */
+function buildLiqChart(d) {
+  const daily = d.daily || [];
+  if (!daily.length) return '';
+  const W = 880, H = 280, padL = 60, padR = 20, padT = 20, padB = 40;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+
+  const balances = daily.map(x => x.balance);
+  const maxV = Math.max(...balances, 0);
+  const minV = Math.min(...balances, 0);
+  const range = (maxV - minV) || 1;
+  const x = i => padL + (plotW * i / Math.max(daily.length - 1, 1));
+  const y = v => padT + plotH * (1 - (v - minV) / range);
+
+  // Zero line
+  const zeroY = y(0);
+
+  // Balance line path
+  const linePath = daily.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${y(p.balance).toFixed(1)}`).join(' ');
+
+  // Net bars
+  let bars = '';
+  const barW = Math.max(plotW / daily.length * 0.6, 2);
+  daily.forEach((p, i) => {
+    const yv = y(p.net);
+    const h = Math.abs(yv - zeroY);
+    const top = Math.min(yv, zeroY);
+    const color = p.net < 0 ? '#dc2626' : '#86BC25';
+    bars += `<rect x="${(x(i) - barW/2).toFixed(1)}" y="${top.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${color}" opacity="0.35"/>`;
+  });
+
+  // Axis labels (every ~3 days)
+  let xlabels = '';
+  daily.forEach((p, i) => {
+    if (i % 3 === 0 || i === daily.length - 1) {
+      const lbl = p.date.slice(5); // MM-DD
+      xlabels += `<text x="${x(i).toFixed(1)}" y="${(H - padB + 16)}" font-size="9" fill="#6b7280" text-anchor="middle">${lbl}</text>`;
+    }
+  });
+  const yTop = `<text x="${padL - 8}" y="${padT + 4}" font-size="9" fill="#6b7280" text-anchor="end">${formatNum(maxV)}</text>`;
+  const yBot = `<text x="${padL - 8}" y="${padT + plotH}" font-size="9" fill="#6b7280" text-anchor="end">${formatNum(minV)}</text>`;
+
+  return `
+  <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;border:1px solid #e5e7eb;background:#fff;">
+    <line x1="${padL}" y1="${zeroY.toFixed(1)}" x2="${W - padR}" y2="${zeroY.toFixed(1)}" stroke="#9ca3af" stroke-dasharray="3,3"/>
+    ${bars}
+    <path d="${linePath}" fill="none" stroke="#000" stroke-width="2"/>
+    ${xlabels}${yTop}${yBot}
+    <text x="${W/2}" y="14" font-size="10" fill="#111827" text-anchor="middle" font-weight="700">Daily Running Balance (line) &amp; Net Flow (bars)</text>
+  </svg>`;
 }
 
 /* Utils */

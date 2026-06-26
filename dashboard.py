@@ -30,6 +30,7 @@ from bigquery_helper import (
 import market_agent
 import credit_agent
 import liquidity_agent
+import liquidity_model_agent
 from agent_base import call_gemini, build_memo_record, save_memo
 
 logger = logging.getLogger(__name__)
@@ -248,34 +249,51 @@ def api_chat():
 
     if not question:
         return jsonify({"error": "No question provided"}), 400
-    if not GEMINI_API_KEY:
-        return jsonify({"error": "GEMINI_API_KEY not configured"}), 503
+    # Allow the request through if EITHER Gemini or Claude is configured (Claude is the fallback).
+    if not GEMINI_API_KEY and not ANTHROPIC_API_KEY:
+        return jsonify({"error": "No LLM configured (set GEMINI_API_KEY or ANTHROPIC_API_KEY)"}), 503
 
+    # 1. Internal BigQuery context (financials, deposits, prior agent memos).
     context = build_llm_context(company_name=company)
 
-    # Enrich context with external live market data if a counterparty is explicitly targeted or mentioned
+    # 2. Resolve a counterparty either from the explicit field or by scanning the question.
     lookup_name = company
     if not lookup_name:
-        for c in ["glencore", "vitol", "shell", "totalenergies", "bp", "chevron"]:
-            if c in question.lower():
-                lookup_name = c
+        from agent_base import TICKER_MAP
+        ql = question.lower()
+        for known in TICKER_MAP:
+            if known in ql:
+                lookup_name = known
                 break
+
+    # 3. Enrich with live ownership / investor-relations / market context.
     if lookup_name:
         from market_data_helper import build_market_context
         market_context = build_market_context(lookup_name)
         if market_context:
-            context += f"\n\nExternal Live Market Context:\n{market_context}"
+            context += f"\n\nExternal Live Market & Ownership Context:\n{market_context}"
 
+        # 4. Live web search for ownership / investor-relations specifics.
+        from agent_base import web_search
+        web = web_search(
+            f"{lookup_name} ownership structure ultimate parent investor relations 2025",
+            max_results=3,
+        )
+        if web:
+            context += f"\n\nLive Web Search (ownership & investor relations):\n{web}"
+
+    from agent_base import STANDARD_REPORT_INSTRUCTION, summarize_to_sentences
     prompt  = (
         "You are a treasury and commodity trading senior analyst. "
         "Answer the user's question. Focus on counterparty risk, company ownership, and investor relations.\n"
         "You have access to:\n"
         "1. Internal BigQuery Data: Financial snapshots, deposit history, and specialist memos.\n"
-        "2. External Market Sources: SEC filings (reporting/ownership) and live market metrics.\n\n"
-        "Be quantitative, professional, and flag any significant ownership shifts or investor concerns.\n\n"
+        "2. External Market Sources: SEC filings (reporting/ownership), live market metrics, and web search.\n\n"
+        f"{STANDARD_REPORT_INSTRUCTION}\n"
         f"DATA:\n{context}\n\nQUESTION: {question}"
     )
-    return jsonify({"answer": _gemini(prompt)})
+    answer = summarize_to_sentences(_gemini(prompt), max_sentences=6)
+    return jsonify({"answer": answer})
 
 
 # ── Agent routes ──────────────────────────────────────────────────────────────
@@ -409,6 +427,41 @@ def api_agent_orchestrate():
     if errors:
         response_payload["agent_errors"] = errors
     return jsonify(response_payload)
+
+
+@app.route("/api/liquidity-model", methods=["POST"])
+def api_liquidity_model():
+    """Project the next 3 weeks of cashflow from uploaded operational file(s).
+
+    Accepts multipart/form-data:
+      - file / files[]     : one or more CSV/XLSX files (receivables, payables,
+                             taxes, swap maturities, margin requirements, etc.)
+      - opening_balance    : starting cash balance (float, optional, default 0)
+      - counterparty       : optional name to also pull BQ deposits as inflows
+    """
+    uploaded = request.files.getlist("files") or request.files.getlist("file")
+    if not uploaded:
+        return jsonify({"error": "No file(s) uploaded"}), 400
+
+    try:
+        opening_balance = float(request.form.get("opening_balance") or 0)
+    except (TypeError, ValueError):
+        opening_balance = 0.0
+    counterparty = (request.form.get("counterparty") or "").strip() or None
+
+    files = [(f.read(), f.filename) for f in uploaded if f and f.filename]
+    if not files:
+        return jsonify({"error": "Empty file(s)"}), 400
+
+    try:
+        result = liquidity_model_agent.run(
+            files, opening_balance=opening_balance, counterparty=counterparty
+        )
+    except Exception as e:
+        logger.exception("Liquidity model failed")
+        return jsonify({"error": f"Projection failed: {e}"}), 500
+
+    return jsonify(result)
 
 
 @app.route("/api/memos")

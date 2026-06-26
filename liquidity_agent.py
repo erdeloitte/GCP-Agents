@@ -6,7 +6,10 @@ import logging
 import os
 from dotenv import load_dotenv
 
-from agent_base import call_llm, web_search, build_memo_record, save_memo
+from agent_base import (
+    call_llm, web_search, build_memo_record, save_memo,
+    STANDARD_REPORT_INSTRUCTION, summarize_to_sentences,
+)
 from risk_scorer import RiskScorer
 
 load_dotenv()
@@ -37,17 +40,17 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
         f"COUNTERPARTY: {counterparty_name}\n"
         f"FINANCIAL DATA:\n{data_block}\n"
         f"{search_context}\n\n"
-        "Provide your assessment in this format:\n"
-        "ANALYSIS: [your detailed analysis]\n"
+        f"{STANDARD_REPORT_INSTRUCTION}\n"
+        "Provide your assessment as the concise narrative, then exactly these two lines:\n"
         "RISK_LEVEL: [LOW|MEDIUM|HIGH|CRITICAL]\n"
         "SETTLEMENT_TERMS: [Standard|Advance Payment|Escrow|LC Required|Partial Advance]\n"
     )
 
     logger.info(f"[LIQUIDITY_AGENT] Calling LLM with web search context")
-    response = call_llm(prompt, temperature=0.2)
+    response = call_llm(prompt, temperature=0.2, trace_label="LIQUIDITY")
 
     risk_level, settlement = _parse_verdict(response)
-    memo_text = _strip_verdict_lines(response)
+    memo_text = summarize_to_sentences(_strip_verdict_lines(response), max_sentences=6)
 
     logger.info(f"[LIQUIDITY_AGENT] Parsed: Risk={risk_level}, Settlement={settlement}")
 
