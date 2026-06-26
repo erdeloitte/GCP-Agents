@@ -1,63 +1,98 @@
 """credit_agent.py
-Credit Risk Agent — LNG trader perspective.
-
-Assesses a counterparty's creditworthiness, leverage, and debt serviceability.
-Recommends a credit limit and payment terms for LNG trading agreements.
-Uses Gemini as the orchestrator with comprehensive logging of all actions.
+Credit Risk Agent using CrewAI with Gemini (+ Claude fallback) orchestration.
+Evaluates creditworthiness and recommends credit limits.
 """
-import os
 import logging
-from agent_base import build_memo_record, save_memo, call_gemini
+import os
+from dotenv import load_dotenv
+
+from agent_base import get_llm, build_memo_record, save_memo, TAVILY_API_KEY
 from risk_scorer import RiskScorer
+from crewai import Agent, Task, Crew
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
-SYSTEM_CONTEXT = """\
-You are a senior credit analyst embedded in an LNG trading desk.
-Your role is to assess the creditworthiness of a trading counterparty before extending
-open credit on LNG supply or offtake contracts.
-
-Write a concise internal credit memo (5–8 sentences) covering:
-1. Credit rating assessment and implied default risk
-2. Leverage analysis: Debt/Equity and ability to service debt from EBITDA
-3. Net income sustainability and earnings quality
-4. Recommended credit limit (in USD million) for unsecured LNG exposure
-5. Recommended payment terms: Open Credit / Letter of Credit / Prepayment
-6. One-line risk verdict: LOW / MEDIUM / HIGH / CRITICAL
-
-End your response with exactly three lines:
-RISK_LEVEL: <LOW|MEDIUM|HIGH|CRITICAL>
-CREDIT_LIMIT: <USD amount, e.g. "USD 150M">
-PAYMENT_TERMS: <Open Credit|Letter of Credit|Prepayment|Partial LC>
-"""
-
-
 def run(counterparty_name: str, financial_data: dict) -> dict:
+    """Run the Credit Risk Agent for a given counterparty using CrewAI."""
+    logger.info(f"[CREDIT_AGENT] Starting credit assessment for {counterparty_name}")
+    logger.info(f"[CREDIT_AGENT] Financial data: Revenue=${financial_data.get('revenue_usd_m', 0):.0f}M, Debt/Equity={financial_data.get('debt_to_equity', 0):.2f}x")
+
+    try:
+        llm = get_llm()
+        logger.info("[CREDIT_AGENT] LLM initialized")
+    except Exception as e:
+        logger.error(f"[CREDIT_AGENT] LLM initialization failed: {e}")
+        return _fallback_response(counterparty_name, "credit", str(e))
+
     data_block = _format_data(financial_data)
-    prompt = (
-        f"{SYSTEM_CONTEXT}\n\n"
-        f"COUNTERPARTY: {counterparty_name}\n"
-        f"FINANCIAL DATA:\n{data_block}\n\n"
-        "Write the memo now."
+
+    # Define the credit analyst agent with web search
+    tools = []
+    if TAVILY_API_KEY:
+        try:
+            from crewai_tools import TavilySearchTool
+            tools = [TavilySearchTool(tavily_api_key=TAVILY_API_KEY)]
+            logger.info("[CREDIT_AGENT] Web search tool enabled (Tavily)")
+        except Exception as e:
+            logger.warning(f"[CREDIT_AGENT] Tavily tool failed: {e}")
+
+    credit_analyst = Agent(
+        role="Senior Credit Analyst",
+        goal="Assess creditworthiness and recommend credit limits for LNG counterparties",
+        backstory=(
+            "You are a credit risk specialist with 20+ years in trade finance. "
+            "Your expertise is evaluating counterparty creditworthiness, debt serviceability, "
+            "and payment reliability. Use web search to find credit ratings, recent news, "
+            "financial disclosures, and payment history."
+        ),
+        llm=llm,
+        tools=tools,
+        verbose=True,
     )
 
-    logger.info(f"[CREDIT_AGENT] Starting credit assessment for {counterparty_name}")
-    logger.info(f"[CREDIT_AGENT] Financial data summary: Revenue=${financial_data.get('revenue_usd_m', 0):.0f}M, Debt/Equity={financial_data.get('debt_to_equity', 0):.2f}x, Rating={financial_data.get('credit_rating', 'N/A')}")
+    assess_task = Task(
+        description=(
+            f"Evaluate credit risk for {counterparty_name}\n\n"
+            f"FINANCIAL DATA:\n{data_block}\n\n"
+            "INSTRUCTIONS:\n"
+            "1. Use web search to find credit ratings, recent news, and financial disclosures\n"
+            "2. Analyze leverage (Debt/Equity), debt service coverage, and cash flow\n"
+            "3. Assess payment reliability and default risk\n"
+            "4. Recommend a credit limit in USD million\n"
+            "5. Recommend payment terms: Open Credit / Letter of Credit / Prepayment\n"
+            "6. Provide a risk verdict: LOW / MEDIUM / HIGH / CRITICAL\n\n"
+            "Format your response with:\n"
+            "ANALYSIS: [detailed analysis]\n"
+            "RISK_LEVEL: [LOW|MEDIUM|HIGH|CRITICAL]\n"
+            "CREDIT_LIMIT: [USD XXM]\n"
+            "PAYMENT_TERMS: [Open Credit|Letter of Credit|Prepayment|Partial LC]\n"
+        ),
+        expected_output="Credit risk assessment with credit limit and payment terms recommendation",
+        agent=credit_analyst,
+    )
 
-    logger.info(f"[CREDIT_AGENT] Invoking Gemini orchestrator with credit assessment prompt")
-    raw_text = str(call_gemini(prompt, temperature=0.3))
+    try:
+        crew = Crew(agents=[credit_analyst], tasks=[assess_task], verbose=True)
+        logger.info("[CREDIT_AGENT] Crew created, executing task")
+        result = crew.kickoff()
+        logger.info("[CREDIT_AGENT] Crew execution completed")
+    except Exception as e:
+        logger.error(f"[CREDIT_AGENT] Crew execution failed: {e}")
+        return _fallback_response(counterparty_name, "credit", str(e))
 
-    logger.info(f"[CREDIT_AGENT] Gemini response received, processing verdict lines")
-
-    risk_level, credit_limit, payment_terms = _parse_verdict(raw_text)
-    memo_text = _strip_verdict_lines(raw_text)
+    output_text = str(result)
+    risk_level, credit_limit, payment_terms = _parse_verdict(output_text)
+    memo_text = _strip_verdict_lines(output_text)
     exposure_proposal = f"{credit_limit} | {payment_terms}"
 
-    logger.info(f"[CREDIT_AGENT] Parsed verdict: Risk Level={risk_level}, Credit Limit={credit_limit}, Payment Terms={payment_terms}")
+    logger.info(f"[CREDIT_AGENT] Parsed verdict: Risk Level={risk_level}, Credit Limit={credit_limit}, Terms={payment_terms}")
 
-    logger.info(f"[CREDIT_AGENT] Calculating quantitative risk score for {counterparty_name}")
+    # Quantitative risk score
+    logger.info(f"[CREDIT_AGENT] Calculating quantitative risk score")
     risk_score_result = RiskScorer.calculate_score(
         company_name=counterparty_name,
         country=financial_data.get("country", ""),
@@ -68,10 +103,9 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
         ebitda_margin_pct=financial_data.get("ebitda_margin_pct", 0),
         revenue_usd_m=financial_data.get("revenue_usd_m", 0),
         total_debt_usd_m=financial_data.get("total_debt_usd_m", 0),
-        is_public=_is_public_company(counterparty_name),
     )
 
-    logger.info(f"[CREDIT_AGENT] Risk score calculated: {risk_score_result['score']}/100 - {risk_score_result['breakdown']}")
+    logger.info(f"[CREDIT_AGENT] Risk score: {risk_score_result['score']}/100")
 
     record = build_memo_record(
         counterparty=counterparty_name,
@@ -80,38 +114,31 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
         memo=memo_text,
         exposure_proposal=exposure_proposal,
     )
-    record["credit_limit"]           = credit_limit
-    record["payment_terms"]          = payment_terms
-    record["risk_score"]             = risk_score_result["score"]
-    record["risk_score_breakdown"]   = risk_score_result["breakdown"]
+    record["credit_limit"] = credit_limit
+    record["payment_terms"] = payment_terms
+    record["risk_score"] = risk_score_result["score"]
+    record["risk_score_breakdown"] = risk_score_result["breakdown"]
 
     logger.info(f"[CREDIT_AGENT] Saving credit memo to BigQuery for {counterparty_name}")
     save_memo(record)
-    logger.info(f"[CREDIT_AGENT] Credit assessment completed for {counterparty_name}")
+    logger.info(f"[CREDIT_AGENT] Credit assessment completed")
     return record
 
 
-def _is_public_company(name: str) -> bool:
-    """Determine if company is likely public based on name patterns."""
-    name_lower = (name or "").lower()
-    private_companies = [
-        "vitol", "trafigura", "louis dreyfus", "gunvor",
-        "mercuria", "noble", "cargill", "archer daniels",
-        "privately held", "private",
-    ]
-    if any(p in name_lower for p in private_companies):
-        return False
-    if "glencore" in name_lower:
-        return True
-    public_indicators = ["plc", "inc.", "corp.", " ag", " se", " sa", " nv"]
-    if any(p in name_lower for p in public_indicators):
-        return True
-    return True  # default: assume public
+def _fallback_response(counterparty: str, agent_type: str, error: str) -> dict:
+    """Return a safe fallback response when CrewAI fails."""
+    return build_memo_record(
+        counterparty=counterparty,
+        agent_type=agent_type,
+        risk_level="MEDIUM",
+        memo=f"Agent failed: {error}",
+        exposure_proposal="Pending assessment",
+    )
 
 
 def _format_data(d: dict) -> str:
     ebitda = d.get("ebitda_usd_m", 0) or 0
-    debt   = d.get("total_debt_usd_m", 0) or 0
+    debt = d.get("total_debt_usd_m", 0) or 0
     debt_ebitda = round(debt / ebitda, 1) if ebitda > 0 else "N/A"
     return (
         f"  Credit Rating:   {d.get('credit_rating', 'N/A')}\n"
@@ -132,18 +159,18 @@ def _format_data(d: dict) -> str:
 def _parse_verdict(text: str) -> tuple[str, str, str]:
     risk, limit, terms = "MEDIUM", "Pending", "Letter of Credit"
     for line in text.splitlines():
-        if line.startswith("RISK_LEVEL:"):
-            val = line.split(":", 1)[1].strip().upper()
+        if "RISK_LEVEL:" in line:
+            val = line.split("RISK_LEVEL:")[-1].strip().upper()
             if val in ("LOW", "MEDIUM", "HIGH", "CRITICAL"):
                 risk = val
-        if line.startswith("CREDIT_LIMIT:"):
-            limit = line.split(":", 1)[1].strip()
-        if line.startswith("PAYMENT_TERMS:"):
-            terms = line.split(":", 1)[1].strip()
+        if "CREDIT_LIMIT:" in line:
+            limit = line.split("CREDIT_LIMIT:")[-1].strip()
+        if "PAYMENT_TERMS:" in line:
+            terms = line.split("PAYMENT_TERMS:")[-1].strip()
     return risk, limit, terms
 
 
 def _strip_verdict_lines(text: str) -> str:
     tags = ("RISK_LEVEL:", "CREDIT_LIMIT:", "PAYMENT_TERMS:")
-    lines = [l for l in text.splitlines() if not any(l.startswith(t) for t in tags)]
+    lines = [l for l in text.splitlines() if not any(t in l for t in tags)]
     return "\n".join(lines).strip()

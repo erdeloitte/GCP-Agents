@@ -96,25 +96,8 @@ def health():
     return "OK", 200
 
 def _gemini(prompt: str, temperature: float = 0.3) -> str:
-    if not GEMINI_API_KEY:
-        return "GEMINI_API_KEY not configured."
-    try:
-        from google import genai
-        from google.genai import types
-        from agent_base import GEMINI_MODEL
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=temperature,
-                max_output_tokens=2048,
-            ),
-        )
-        text = response.text
-        return text.strip() if text else "No response text returned."
-    except Exception as e:
-        return f"LLM error: {e}"
+    from agent_base import call_gemini
+    return call_gemini(prompt, temperature=temperature)
 
 
 def _resolve_counterparty(name: str) -> tuple[str, dict | None]:
