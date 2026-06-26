@@ -84,9 +84,6 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
     record["payment_terms"]          = payment_terms
     record["risk_score"]             = risk_score_result["score"]
     record["risk_score_breakdown"]   = risk_score_result["breakdown"]
-    record["search_queries"]         = getattr(raw_text, "search_queries", [])
-    record["search_sources"]         = getattr(raw_text, "search_sources", [])
-    record["tool_calls"]             = getattr(raw_text, "tool_calls", [])
 
     logger.info(f"[CREDIT_AGENT] Gemini tool calls captured: {len(record['tool_calls'])} calls")
     logger.info(f"[CREDIT_AGENT] Search queries: {record['search_queries']}")

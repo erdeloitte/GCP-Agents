@@ -942,58 +942,6 @@ function renderMemoCard(d) {
   };
 
   let sourcesHtml = '';
-  
-  const hasQueries = d.search_queries && d.search_queries.length > 0;
-  const hasSources = d.search_sources && d.search_sources.length > 0;
-  const hasTools = d.tool_calls && d.tool_calls.length > 0;
-  
-  if (hasQueries || hasSources || hasTools) {
-    sourcesHtml = `
-      <details style="margin-top: 12px; font-size: 11px; border: 1px solid var(--gray-200); padding: 10px; background: var(--gray-50);">
-        <summary style="font-weight: 700; color: var(--deloitte-green); cursor: pointer; user-select: none; outline: none; letter-spacing: 0.5px; text-transform: uppercase; font-size: 10px;">
-          Show Agent Thought Process & Sources
-        </summary>
-        <div style="margin-top: 10px; border-top: 1px solid var(--gray-200); padding-top: 8px;">
-    `;
-    
-    if (hasQueries) {
-      sourcesHtml += `
-        <div style="margin-bottom: 8px;">
-          <strong style="color: var(--black);">Google Search Queries:</strong>
-          <ul style="margin-left: 16px; margin-top: 2px; list-style-type: square; color: var(--text-dim);">
-            ${d.search_queries.map(q => `<li>"${esc(q)}"</li>`).join('')}
-          </ul>
-        </div>
-      `;
-    }
-    
-    if (hasSources) {
-      sourcesHtml += `
-        <div style="margin-bottom: 8px;">
-          <strong style="color: var(--black);">Sources Analyzed:</strong>
-          <ul style="margin-left: 16px; margin-top: 2px; list-style-type: disc;">
-            ${d.search_sources.map(s => `<li><a href="${esc(s.uri)}" target="_blank" style="color: var(--deloitte-green); text-decoration: underline; font-weight: 500;">${esc(s.title || s.uri)}</a></li>`).join('')}
-          </ul>
-        </div>
-      `;
-    }
-    
-    if (hasTools) {
-      sourcesHtml += `
-        <div>
-          <strong style="color: var(--black);">Specialist Tool Executions:</strong>
-          <ul style="margin-left: 16px; margin-top: 2px; font-family: monospace; font-size: 10px; color: var(--gray-600); list-style-type: circle;">
-            ${d.tool_calls.map(t => `<li>${esc(t)}</li>`).join('')}
-          </ul>
-        </div>
-      `;
-    }
-    
-    sourcesHtml += `
-        </div>
-      </details>
-    `;
-  }
 
   // Add traffic light visual
   const trafficLight = `

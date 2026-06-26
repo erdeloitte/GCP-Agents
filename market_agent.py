@@ -98,9 +98,6 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
         memo=memo_text,
         exposure_proposal=exposure,
     )
-    record["search_queries"] = getattr(raw, "search_queries", [])
-    record["search_sources"] = getattr(raw, "search_sources", [])
-    record["tool_calls"] = getattr(raw, "tool_calls", [])
     record["risk_score"] = risk_score_result["score"]
     record["risk_score_breakdown"] = risk_score_result["breakdown"]
 

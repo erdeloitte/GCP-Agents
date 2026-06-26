@@ -167,19 +167,19 @@ def call_gemini(prompt: str, temperature: float = 0.3) -> str:
         else:
             logger.debug(f"[GEMINI] No grounding metadata available in response")
 
-        # Extract tool calls from chat history
+        # Extract tool calls from chat history (version-safe with hasattr checks)
         logger.info(f"[GEMINI] Processing chat history for tool invocations")
         history = chat.get_history()
         tool_call_count = 0
         for msg_idx, msg in enumerate(history):
             for part_idx, part in enumerate(msg.parts):
                 # 1. Custom client-side function calls
-                if part.function_call:
+                if hasattr(part, 'function_call') and part.function_call:
                     tool_call = f"Agent called tool '{part.function_call.name}' with arguments {part.function_call.args}"
                     tool_calls_logged.append(tool_call)
                     tool_call_count += 1
                     logger.info(f"[GEMINI] Tool call [{tool_call_count}]: {part.function_call.name}()")
-                elif part.function_response:
+                elif hasattr(part, 'function_response') and part.function_response:
                     resp_str = str(part.function_response.response)
                     if len(resp_str) > 200:
                         resp_str = resp_str[:200] + "..."
@@ -187,7 +187,7 @@ def call_gemini(prompt: str, temperature: float = 0.3) -> str:
                     tool_calls_logged.append(response_log)
                     logger.debug(f"[GEMINI] Tool response: {part.function_response.name} -> {len(str(part.function_response.response))} bytes")
                 # 2. Built-in server-side tool calls (e.g. Google Search grounding)
-                elif part.tool_call:
+                elif hasattr(part, 'tool_call') and part.tool_call:
                     if getattr(part.tool_call, "tool_type", None) and part.tool_call.tool_type.name == "GOOGLE_SEARCH_WEB":
                         queries = part.tool_call.args.get("queries", []) if part.tool_call.args else []
                         if queries:
