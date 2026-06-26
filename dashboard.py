@@ -44,6 +44,8 @@ app = Flask(
 # Priority: OS Env (Cloud Run) > .env file
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY", "")
+TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY") or os.getenv("TAVILY_API_KEY", "")
+
 
 if not GEMINI_API_KEY:
     logger.error("CRITICAL: GEMINI_API_KEY is not set. LLM calls will fail.")

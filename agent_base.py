@@ -19,7 +19,8 @@ logging.basicConfig(
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
-GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_MODEL = "gemini-3.5-flash"
+
 
 TICKER_MAP: dict[str, str] = {
     "glencore":      "GLEN.L",
@@ -52,7 +53,7 @@ def call_llm(prompt: str, temperature: float = 0.3) -> str:
             response = client.models.generate_content(
                 model=GEMINI_MODEL,
                 contents=prompt,
-                config={"temperature": temperature, "max_output_tokens": 2048},
+                config={"temperature": temperature, "max_output_tokens": 1000},
             )
             text = response.text or ""
             logger.info(f"[LLM] Gemini response: {len(text)} chars")
@@ -66,7 +67,7 @@ def call_llm(prompt: str, temperature: float = 0.3) -> str:
             client = Anthropic(api_key=ANTHROPIC_API_KEY)
             logger.info("[LLM] Calling Claude (fallback)")
             response = client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model="claude-haiku-4-5@20251001",
                 max_tokens=2048,
                 temperature=temperature,
                 messages=[{"role": "user", "content": prompt}],
@@ -105,6 +106,13 @@ def web_search(query: str, max_results: int = 3) -> str:
         logger.warning(f"[WEB] Tavily search failed: {e}")
         return ""
 
+
+## Testing apis
+_gemmini = call_llm("What is AI in one sentence", temperature=0.3)
+_claude = call_llm("What is AI in one sentence", temperature=0.3 )
+
+print(f'gemmini: {_gemmini}')
+print(f'claude:, {_claude}')
 
 def call_gemini(prompt: str, temperature: float = 0.3) -> str:
     """Alias for call_llm (backward compatibility)."""
