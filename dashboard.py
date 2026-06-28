@@ -21,6 +21,8 @@ load_dotenv()  # must be before any local imports that read os.getenv at module 
 
 from flask import Flask, render_template, request, jsonify
 from werkzeug.exceptions import HTTPException
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
 from bigquery_helper import (
     get_counterparties, get_summary_stats, build_llm_context,
     get_counterparty_detail, get_memos,
@@ -53,30 +55,78 @@ if not GEMINI_API_KEY:
 
 logger.info(f"Keys loaded: Gemini={bool(GEMINI_API_KEY)}, Anthropic={bool(ANTHROPIC_API_KEY)}")
 
+# -- IAP Authentication Config --
+# Audience format: /projects/<PROJECT_NUMBER>/global/backendServices/<BACKEND_SERVICE_ID>
+# Build from parts if IAP_AUDIENCE is not supplied directly.
+IAP_AUDIENCE = os.environ.get("IAP_AUDIENCE") or os.getenv("IAP_AUDIENCE", "")
+if not IAP_AUDIENCE:
+    _proj_num = os.getenv("GCP_PROJECT_NUMBER", "")
+    _backend_id = os.getenv("IAP_BACKEND_SERVICE_ID", "")
+    if _proj_num and _backend_id:
+        IAP_AUDIENCE = f"/projects/{_proj_num}/global/backendServices/{_backend_id}"
+
+LB_DOMAIN = os.getenv("LB_DOMAIN", "your-domain.com")
+IAP_ISSUER = "https://cloud.google.com/iap"
+IAP_CERTS_URL = "https://www.gstatic.com/iap/verify/public_key"
+
+# Reuse a single transport request object for cert fetching/caching.
+_GOOGLE_REQUEST = google_requests.Request()
+
+if not IAP_AUDIENCE:
+    logger.error(
+        "CRITICAL: IAP_AUDIENCE is not set (or GCP_PROJECT_NUMBER + "
+        "IAP_BACKEND_SERVICE_ID). IAP JWTs cannot be verified — all "
+        "requests will be rejected unless SKIP_IAP_CHECK=True."
+    )
+
+
 # -- IAP Authentication Step --
 @app.before_request
 def verify_iap_token():
     """
-    Ensures that requests are coming through Identity-Aware Proxy.
-    In local development, this can be bypassed via an environment variable.
+    Verify that the request carries a valid Identity-Aware Proxy JWT.
+
+    The JWT in X-Goog-IAP-JWT-Assertion is cryptographically validated:
+    signature against Google's public keys, the `aud` claim against this
+    backend service, the issuer, and expiry. In local development the check
+    can be bypassed with SKIP_IAP_CHECK=True.
     """
     skip = os.getenv("SKIP_IAP_CHECK", "False") == "True"
-    # Skip check for local development or explicit overrides
+    # Skip check for local development, health probes, or explicit overrides.
     if app.debug or os.getenv("FLASK_DEBUG") == "1" or skip or request.path == "/health":
         return
 
-    # IAP injects this header after successful authentication
-    iap_jwt = request.headers.get('X-Goog-IAP-JWT-Assertion')
-    
+    # IAP injects this header after successful authentication.
+    iap_jwt = request.headers.get("X-Goog-IAP-JWT-Assertion")
     if not iap_jwt:
-        # During migration/setup, we log a warning but allow if SKIP_IAP_CHECK is not enforced
-        # strictly. For now, let's keep it strict but add a clear log.
-        logger.warning(f"Unauthorized access attempt to {request.path}. Direct Cloud Run URLs are blocked.")
+        logger.warning(
+            f"Blocked request to {request.path}: no IAP assertion header. "
+            f"Direct Cloud Run URLs are not allowed."
+        )
         return jsonify({
-            "error": f"Access Denied. You must use the corporate Load Balancer URL: https://{os.getenv('LB_DOMAIN', 'your-domain.com')}"
+            "error": f"Access Denied. You must use the corporate URL: https://{LB_DOMAIN}"
         }), 401
 
-    logger.info("Authenticated request received via IAP")
+    if not IAP_AUDIENCE:
+        logger.error("IAP_AUDIENCE not configured; cannot verify JWT.")
+        return jsonify({"error": "Server auth misconfiguration."}), 500
+
+    try:
+        decoded = id_token.verify_token(
+            iap_jwt,
+            _GOOGLE_REQUEST,
+            audience=IAP_AUDIENCE,
+            certs_url=IAP_CERTS_URL,
+        )
+        if decoded.get("iss") != IAP_ISSUER:
+            raise ValueError(f"Unexpected issuer: {decoded.get('iss')}")
+    except Exception as e:
+        logger.warning(f"Rejected request to {request.path}: invalid IAP JWT — {e}")
+        return jsonify({"error": "Access Denied. Invalid or expired credentials."}), 401
+
+    # Identity of the authenticated end user (Deloitte Google account).
+    request.iap_user_email = decoded.get("email", "unknown")
+    logger.info(f"Authenticated via IAP: {request.iap_user_email} → {request.path}")
 
 
 @app.errorhandler(Exception)
