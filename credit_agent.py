@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
-def run(counterparty_name: str, financial_data: dict) -> dict:
+def run(counterparty_name: str, financial_data: dict, provider: str | None = None) -> dict:
     """Run Credit Risk Agent for a given counterparty."""
     logger.info(f"[CREDIT_AGENT] Starting credit assessment for {counterparty_name}")
     logger.info(f"[CREDIT_AGENT] Revenue=${financial_data.get('revenue_usd_m', 0):.0f}M, Debt/Equity={financial_data.get('debt_to_equity', 0):.2f}x")
@@ -48,7 +48,7 @@ def run(counterparty_name: str, financial_data: dict) -> dict:
     )
 
     logger.info(f"[CREDIT_AGENT] Calling LLM with web search context")
-    response = call_llm(prompt, temperature=0.3, trace_label="CREDIT")
+    response = call_llm(prompt, temperature=0.3, trace_label="CREDIT", provider=provider)
 
     risk_level, credit_limit, payment_terms = _parse_verdict(response)
     memo_text = summarize_to_sentences(_strip_verdict_lines(response), max_sentences=6)

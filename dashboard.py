@@ -33,7 +33,7 @@ import market_agent
 import credit_agent
 import liquidity_agent
 import liquidity_model_agent
-from agent_base import call_gemini, build_memo_record, save_memo
+from agent_base import build_memo_record, save_memo
 
 logger = logging.getLogger(__name__)
 
@@ -148,9 +148,19 @@ def health():
     """Simple connectivity check."""
     return "OK", 200
 
-def _gemini(prompt: str, temperature: float = 0.3) -> str:
-    from agent_base import call_gemini
-    return call_gemini(prompt, temperature=temperature)
+def _llm(prompt: str, temperature: float = 0.3, provider: str | None = None) -> str:
+    from agent_base import call_llm
+    return call_llm(prompt, temperature=temperature, provider=provider)
+
+
+def _get_provider() -> str | None:
+    """Read the LLM engine selection ("gemini" | "claude") from JSON body or form."""
+    provider = None
+    if request.is_json:
+        provider = (request.get_json(silent=True) or {}).get("provider")
+    provider = provider or request.form.get("provider") or request.args.get("provider")
+    provider = (provider or "").strip().lower()
+    return provider if provider in ("gemini", "claude") else None
 
 
 def _resolve_counterparty(name: str) -> tuple[str, dict | None]:
@@ -342,7 +352,7 @@ def api_chat():
         f"{STANDARD_REPORT_INSTRUCTION}\n"
         f"DATA:\n{context}\n\nQUESTION: {question}"
     )
-    answer = summarize_to_sentences(_gemini(prompt), max_sentences=6)
+    answer = summarize_to_sentences(_llm(prompt, provider=_get_provider()), max_sentences=6)
     return jsonify({"answer": answer})
 
 
@@ -364,7 +374,7 @@ def api_agent_market():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    result = market_agent.run(canonical, data)
+    result = market_agent.run(canonical, data, provider=_get_provider())
     return jsonify(result)
 
 
@@ -376,7 +386,7 @@ def api_agent_credit():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    result = credit_agent.run(canonical, data)
+    result = credit_agent.run(canonical, data, provider=_get_provider())
     return jsonify(result)
 
 
@@ -388,7 +398,7 @@ def api_agent_liquidity():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    result = liquidity_agent.run(canonical, data)
+    result = liquidity_agent.run(canonical, data, provider=_get_provider())
     return jsonify(result)
 
 
@@ -404,12 +414,13 @@ def api_agent_orchestrate():
     # Run all three agents in PARALLEL using a thread pool to cut latency
     # from ~60–90s (serial) down to ~20–30s (limited by slowest agent).
     # -----------------------------------------------------------------------
+    provider = _get_provider()
     results: dict = {}
     errors:  dict = {}
     tasks = {
-        "market":    lambda: market_agent.run(canonical, data),
-        "credit":    lambda: credit_agent.run(canonical, data),
-        "liquidity": lambda: liquidity_agent.run(canonical, data),
+        "market":    lambda: market_agent.run(canonical, data, provider=provider),
+        "credit":    lambda: credit_agent.run(canonical, data, provider=provider),
+        "liquidity": lambda: liquidity_agent.run(canonical, data, provider=provider),
     }
     with ThreadPoolExecutor(max_workers=3) as pool:
         future_map = {pool.submit(fn): key for key, fn in tasks.items()}
@@ -451,7 +462,7 @@ def api_agent_orchestrate():
         f"LIQUIDITY AGENT:\n{liquidity['memo']}\nExposure: {liquidity['exposure_proposal']}\n\n"
         "Write the executive summary now."
     )
-    summary = call_gemini(summary_prompt, temperature=0.3)
+    summary = _llm(summary_prompt, temperature=0.3, provider=provider)
 
     orch_record = build_memo_record(
         counterparty=canonical,
@@ -505,7 +516,8 @@ def api_liquidity_model():
 
     try:
         result = liquidity_model_agent.run(
-            files, opening_balance=opening_balance, counterparty=counterparty
+            files, opening_balance=opening_balance, counterparty=counterparty,
+            provider=_get_provider(),
         )
     except Exception as e:
         logger.exception("Liquidity model failed")

@@ -1,0 +1,5 @@
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-f', 'Dockerfile.dash', '-t', 'europe-west4-docker.pkg.dev/dttl-nl-genai-sandbox/treasury-repo/treasury-platform', '.']
+images:
+- 'europe-west4-docker.pkg.dev/dttl-nl-genai-sandbox/treasury-repo/treasury-platform'
