@@ -1,3 +1,113 @@
+# AgriRisk — Agricultural Derivatives CTRM Prototype
+
+> **PROTOTYPE — illustrative only.** All trades, prices, FX rates and limits are
+> synthetic demo data. Valuation is deliberately simplified (options at intrinsic
+> value only, no discounting, fixed FX) and is not suitable for live trading,
+> financial reporting or regulatory use.
+
+The dashboard service (`dashboard.py`) serves a prototype trade-capture,
+monitoring and risk tool for agricultural derivatives at `/`. The older
+counterparty analytics page (market / credit / liquidity agents) is still
+available at `/counterparty-analytics`.
+
+### Screens
+
+Left navigation with a top bar for section, portfolio scope, data freshness,
+AI status and the demo identity.
+
+| Screen | What it shows |
+|--------|---------------|
+| Dashboard | Summary line, positions by commodity (long / short / net t, notional, MtM, valuation coverage, limit status), exposure by maturity, items requiring attention, market-input freshness, limit utilisation, upcoming maturities |
+| Trade blotter / Capture | Sortable, filterable list; validated create / amend / cancel with a live trade ticket, reason and confirmation |
+| Trade detail | Terms, valuation with formula, inputs and assumptions, exceptions, simulated broker confirmation, audit history, review actions |
+| Monitoring | Monitoring items by category (maturities, missing data, market inputs, unmatched, valuation, reviews, limits) and a 60-day maturity calendar |
+| Exposure & risk | Exposure by commodity / maturity / portfolio / counterparty, configured limits, and a derivation drawer listing contributing trades and marks |
+| Exceptions | Acknowledge / override (Risk role, reason required, audited) and trade review |
+| Audit trail | Every change with timestamp, demo user, before/after and reason, including AI requests |
+| System & AI | Boundaries, AI provider status and connection test, data-handling policy, persistence statement |
+
+The portfolio selector scopes the dashboard, blotter and monitoring; limits and
+the Exposure & risk page are always firm-wide.
+
+### Calculation and AI boundaries
+
+- Valuation, exposure, limits and exception detection are plain, tested Python
+  in `agri/` (`valuation.py`, `risk.py`, `monitoring.py`, `validation.py`).
+  Missing or stale prices produce a flagged status, not a number. The
+  valuation basis is shown next to every valuation figure.
+- AI explanations (`/api/agri/ai/*`) are assistive only. The user first sees
+  the exact payload (`/ai/preview`) and must confirm before anything is sent.
+  The payload is an allow-list built in `agri/ai_payload.py`: IDs,
+  counterparties, portfolios, brokers, execution references, notes, user names
+  and free-text details are never sent. The AI cannot write anything; each
+  request is audited with the provider used and the fields sent.
+- Existing market/credit/liquidity agent outputs are tagged `"advisory": true`
+  and do not feed limits or valuations.
+- Identity is a selectable **demo user** (Demo Trader / Demo Risk Reviewer),
+  used for role checks and maker-checker. It is not authentication; IAP still
+  protects deployed services.
+
+### LLM provider configuration
+
+All LLM calls (agents and AI explanations) go through `llm_providers.py`.
+Set these in the environment or `.env`; only the keys are required.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `LLM_ENABLED` | `true` | Turn all LLM features off without removing keys |
+| `LLM_PROVIDER_ORDER` | `gemini,claude` | Primary first, then fallbacks |
+| `GEMINI_API_KEY` | — | Google key (AI Studio `AIza…` or Cloud `AQ.` key) |
+| `GEMINI_MODEL` | `gemini-3.5-flash` | |
+| `GEMINI_BACKEND` | `auto` | `public` = Gemini API (generativelanguage.googleapis.com); `vertex` = Vertex AI express mode (aiplatform.googleapis.com); `auto` = `AQ.` keys try Vertex, then fall back to the public endpoint if the key is blocked for Vertex |
+| `ANTHROPIC_API_KEY` | — | Claude fallback |
+| `CLAUDE_MODEL` | `claude-haiku-4-5-20251001` | |
+| `LLM_TIMEOUT_SECONDS` | `30` | Per-request timeout |
+
+Failures are reported as non-sensitive diagnostic codes with a remediation
+hint (e.g. `API_KEY_SERVICE_BLOCKED`, `MODEL_NOT_FOUND`, `INVALID_KEY`,
+`RATE_LIMITED`, `EMPTY_RESPONSE`), on the System & AI page and in the
+explanation dialog. Keys are never logged or displayed. *System & AI → Test
+connection* probes each provider with a fixed prompt and no application data.
+
+### Layout
+
+```
+agri/                 # deterministic engine + service layer (no Flask)
+  models.py validation.py valuation.py risk.py monitoring.py
+  reference.py demo_data.py repository.py audit.py service.py ai_payload.py
+agri_api.py           # Flask blueprint: /api/agri/*
+llm_providers.py      # LLM provider order, Gemini routing, diagnostics
+agri.html static/     # UI (vanilla JS/CSS, no build step)
+tests/                # pytest suite
+```
+
+**Persistence:** trades, limits, exception actions and audit events live in
+`InMemoryRepository` and reset when the service restarts. None of the existing
+BigQuery tables (`counterparties`, `agent_memos`, `deposits`) fits trades or
+audit events, and this prototype does not connect to BigQuery. To persist,
+implement the `Repository` interface in `agri/repository.py` against an
+approved store; the calculation code stays the same.
+
+### Run locally
+
+```bash
+pip install -r requirements.txt
+SKIP_IAP_CHECK=True python dashboard.py      # http://localhost:8081
+```
+
+(PowerShell: `$env:SKIP_IAP_CHECK="True"; python dashboard.py`.) LLM keys in
+`.env` are optional; without them the AI features report "not configured" and
+everything else works.
+
+### Run tests
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+---
+
 # Serverless Document Processing Pipeline
 
 A serverless, event-driven document processing pipeline on Google Cloud Platform.

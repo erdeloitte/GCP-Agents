@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AgriRisk CTRM — Prototype</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/agri.css" />
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<div class="app">
+  <nav class="sidenav" id="sidenav" aria-label="Main">
+    <div class="brand">
+      <span class="brand-name">AgriRisk</span>
+      <span class="pill-proto">Prototype</span>
+      <span class="brand-sub">Agricultural derivatives CTRM</span>
+    </div>
+    <ul>
+      <li><a href="#/dashboard" data-route="dashboard">Dashboard</a></li>
+      <li class="nav-group">Trades</li>
+      <li><a href="#/blotter" data-route="blotter">Trade blotter</a></li>
+      <li><a href="#/capture" data-route="capture">Capture trade</a></li>
+      <li><a href="#/monitoring" data-route="monitoring">Monitoring</a></li>
+      <li class="nav-group">Risk &amp; control</li>
+      <li><a href="#/risk" data-route="risk">Exposure &amp; risk</a></li>
+      <li><a href="#/exceptions" data-route="exceptions">Exceptions <span class="badge" id="exc-badge"></span></a></li>
+      <li><a href="#/audit" data-route="audit">Audit trail</a></li>
+      <li class="nav-group">Reference</li>
+      <li><a href="#/market-data" data-route="market-data">Market data</a></li>
+      <li><a href="#/system" data-route="system">System &amp; AI</a></li>
+    </ul>
+    <div class="nav-foot">
+      Synthetic demo data.<br>In-memory store — resets on restart.
+    </div>
+  </nav>
+
+  <div class="workspace">
+    <header class="topbar">
+      <button class="nav-toggle" id="nav-toggle" aria-controls="sidenav" aria-expanded="false">Menu</button>
+      <div class="crumbs" aria-live="polite"><span id="crumb-section">Dashboard</span><span id="crumb-item"></span></div>
+      <div class="ctx">
+        <div class="ctx-item">
+          <label for="scope">Portfolio</label>
+          <select id="scope"><option value="">All portfolios</option></select>
+        </div>
+        <span class="ctx-item ctx-text" id="freshness" title="Valuation time and market-input freshness"></span>
+        <a class="ctx-item ctx-text ai-chip" id="ai-chip" href="#/system" title="AI provider status"></a>
+        <div class="ctx-item">
+          <label for="demo-user">Demo identity</label>
+          <select id="demo-user" aria-describedby="auth-note"></select>
+          <span id="auth-note" class="demo-note">Not authentication</span>
+        </div>
+        <a class="btn btn-primary btn-sm" href="#/capture">New trade</a>
+      </div>
+    </header>
+    <div class="proto-strip" role="note" id="proto-strip">
+      <strong>Prototype</strong> · synthetic demo data · simplified valuation — not for trading, financial reporting or regulatory use
+    </div>
+    <main id="main" tabindex="-1">
+      <div class="state"><div class="spinner"></div>Loading…</div>
+    </main>
+  </div>
+</div>
+
+<dialog id="dlg" aria-labelledby="dlg-title">
+  <div class="dlg-head"><h2 id="dlg-title"></h2><button class="dlg-close" data-close aria-label="Close">&times;</button></div>
+  <div class="dlg-body" id="dlg-body"></div>
+  <div class="dlg-foot" id="dlg-foot"></div>
+</dialog>
+<dialog id="drawer" class="drawer" aria-labelledby="drawer-title">
+  <div class="dlg-head"><h2 id="drawer-title"></h2><button class="dlg-close" data-close aria-label="Close">&times;</button></div>
+  <div class="dlg-body" id="drawer-body"></div>
+</dialog>
+<div class="toasts" id="toasts" aria-live="polite" aria-atomic="false"></div>
+
+<script src="/static/agri.js"></script>
+</body>
+</html>

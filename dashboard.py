@@ -1,8 +1,10 @@
 """dashboard.py
-Deloitte AI Hub — Treasury & Commodity Counterparty Analytics
+Deloitte AI Hub — Agri Derivatives Risk prototype + Counterparty Analytics
 
 Endpoints:
-  GET  /                      – dashboard UI
+  GET  /                      – Agri derivatives trade capture & risk UI (agri.html)
+  *    /api/agri/...          – deterministic trade/risk/limits/audit API (agri_api.py)
+  GET  /counterparty-analytics – original counterparty analytics UI (dashboard.html)
   GET  /api/counterparties    – counterparty table data
   GET  /api/stats             – KPI summary
   POST /api/upload            – local file ingestion
@@ -33,7 +35,8 @@ import market_agent
 import credit_agent
 import liquidity_agent
 import liquidity_model_agent
-from agent_base import build_memo_record, save_memo
+from agent_base import build_memo_record, save_memo, ADVISORY_NOTICE
+from agri_api import agri_bp
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +46,7 @@ app = Flask(
     static_folder=os.path.dirname(os.path.abspath(__file__)),
     static_url_path=''
 )
+app.register_blueprint(agri_bp)
 
 # Priority: OS Env (Cloud Run) > .env file
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY", "")
@@ -183,6 +187,12 @@ def _serialise(rows: list[dict]) -> list[dict]:
 
 @app.route("/", methods=["GET"])
 def index():
+    return render_template("agri.html")
+
+
+@app.route("/counterparty-analytics", methods=["GET"])
+def counterparty_analytics():
+    """Original counterparty analytics page (advisory AI agents)."""
     return render_template("dashboard.html")
 
 
@@ -484,6 +494,9 @@ def api_agent_orchestrate():
         "market":         market,
         "credit":         credit,
         "liquidity":      liquidity,
+        # Aggregate is a weighted mapping of LLM risk labels — advisory only.
+        "advisory":       True,
+        "advisory_notice": ADVISORY_NOTICE,
     }
     if errors:
         response_payload["agent_errors"] = errors

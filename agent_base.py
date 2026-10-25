@@ -1,6 +1,6 @@
 """agent_base.py
-Shared utilities for treasury agents: Gemini + Claude with web search via Tavily.
-Direct SDK calls (no frameworks), automatic fallback to Claude when Gemini fails.
+Shared utilities for treasury agents: LLM calls (provider order, Gemini routing
+and fallback live in llm_providers.py) and web search via Tavily.
 """
 import os
 import uuid
@@ -16,10 +16,8 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
-GEMINI_MODEL = "gemini-3.5-flash"
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "").strip() or "gemini-3.5-flash"   # see llm_providers.py
 
 
 TICKER_MAP: dict[str, str] = {
@@ -41,6 +39,12 @@ TICKER_MAP: dict[str, str] = {
     "equinor":       "EQNR",
     "eni":           "E",
 }
+
+
+ADVISORY_NOTICE = (
+    "Advisory AI output — risk level and exposure proposal are LLM opinions, "
+    "not authoritative figures. They do not set limits or approve exposure."
+)
 
 
 # ── Standardized reporting ─────────────────────────────────────────────────────
@@ -74,82 +78,37 @@ def summarize_to_sentences(text: str, max_sentences: int = 6) -> str:
     return trimmed
 
 
-def _try_gemini(prompt: str, temperature: float, trace_label: str) -> str | None:
-    """Attempt a Gemini call. Returns text or None on failure."""
-    if not GEMINI_API_KEY:
-        return None
-    try:
-        from google import genai
-        # "AQ." keys are Vertex AI express-mode keys (created in the GCP
-        # console) and must target Vertex; "AIza" keys use the public API.
-        if GEMINI_API_KEY.startswith("AQ."):
-            client = genai.Client(vertexai=True, api_key=GEMINI_API_KEY)
-        else:
-            client = genai.Client(api_key=GEMINI_API_KEY)
-        logger.info(f"[{trace_label}] Reasoning via Gemini ({GEMINI_MODEL}), temp={temperature}")
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config={"temperature": temperature, "max_output_tokens": 2000},
-        )
-        text = response.text or ""
-        logger.info(f"[{trace_label}] Gemini reasoning output ({len(text)} chars): "
-                    f"{text[:500].replace(chr(10), ' ')}…")
-        return text.strip()
-    except Exception as e:
-        logger.warning(f"[{trace_label}] Gemini failed: {e}")
-        return None
-
-
-def _try_claude(prompt: str, temperature: float, trace_label: str) -> str | None:
-    """Attempt a Claude call. Returns text or None on failure."""
-    if not ANTHROPIC_API_KEY:
-        return None
-    try:
-        from anthropic import Anthropic
-        client = Anthropic(api_key=ANTHROPIC_API_KEY)
-        logger.info(f"[{trace_label}] Reasoning via Claude, temp={temperature}")
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=2048,
-            temperature=temperature,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = response.content[0].text if response.content else ""
-        logger.info(f"[{trace_label}] Claude reasoning output ({len(text)} chars): "
-                    f"{text[:500].replace(chr(10), ' ')}…")
-        return text.strip()
-    except Exception as e:
-        logger.error(f"[{trace_label}] Claude failed: {e}")
-        return None
-
-
 def call_llm(prompt: str, temperature: float = 0.3, trace_label: str = "LLM",
              provider: str | None = None) -> str:
-    """Call the selected LLM engine with automatic fallback to the other.
+    """Call the configured LLM providers with fallback (see llm_providers.py).
 
     Args:
         prompt: The full prompt.
         temperature: Sampling temperature.
         trace_label: A label (e.g. "MARKET") tagging traceability logs so each
             agent's reasoning is identifiable in the logs.
-        provider: "gemini" | "claude" | None. Selects the PRIMARY engine; the
-            other engine remains the fallback. None defaults to Gemini-first.
+        provider: "gemini" | "claude" | None. Moves that engine to the front of
+            LLM_PROVIDER_ORDER; the others remain fallbacks.
+    Returns the model text, or a string starting with "ERROR:" that carries
+    non-sensitive diagnostic codes.
     """
+    import llm_providers
     # Traceability: log a preview of what the model is being asked to reason over.
     logger.info(f"[{trace_label}] Prompt dispatched ({len(prompt)} chars, "
                 f"engine={provider or 'auto'}). Preview: "
                 f"{prompt[:280].replace(chr(10), ' ')}…")
-
-    order = [_try_claude, _try_gemini] if (provider or "").lower() == "claude" \
-        else [_try_gemini, _try_claude]
-
-    for attempt in order:
-        text = attempt(prompt, temperature, trace_label)
-        if text:
-            return text
-
-    return "ERROR: No LLM available (set GEMINI_API_KEY or ANTHROPIC_API_KEY)"
+    order = llm_providers.load_config().order
+    p = (provider or "").lower()
+    if p in order:
+        order = [p] + [o for o in order if o != p]
+    result = llm_providers.generate(prompt, temperature=temperature, trace_label=trace_label, order=order)
+    if result.ok:
+        logger.info(f"[{trace_label}] {result.provider} output ({len(result.text)} chars): "
+                    f"{result.text[:500].replace(chr(10), ' ')}…")
+        return result.text
+    codes = ", ".join(f"{a['provider']}: {a['diagnostic']['code']}" for a in result.attempts
+                      if a.get("diagnostic"))
+    return f"ERROR: No LLM available ({codes or 'no providers configured'})"
 
 
 def web_search(query: str, max_results: int = 3) -> str:
@@ -207,4 +166,8 @@ def build_memo_record(
         "memo":              memo,
         "exposure_proposal": exposure_proposal,
         "created_at":        datetime.now(timezone.utc).isoformat(),
+        # LLM verdicts (risk level, exposure proposal) are opinions, not system
+        # figures; they must not feed limits, valuations or approvals.
+        "advisory":          True,
+        "advisory_notice":   ADVISORY_NOTICE,
     }
