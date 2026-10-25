@@ -126,12 +126,6 @@ def reference_payload() -> dict:
         "fx_label": FX_AS_OF_LABEL,
         "demo_users": DEMO_USERS,
         "valuation_methodology": _methodology(),
-        "persistence": {
-            "store": "in-memory",
-            "persistent": False,
-            "note": "Demo data is held in memory and resets when the service restarts. "
-                    "No database is connected for trades, limits or audit events.",
-        },
     }
 
 

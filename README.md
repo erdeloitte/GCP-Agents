@@ -47,46 +47,64 @@ the Exposure & risk page are always firm-wide.
   used for role checks and maker-checker. It is not authentication; IAP still
   protects deployed services.
 
-### LLM provider configuration
+### LLM configuration (Claude only)
 
-All LLM calls (agents and AI explanations) go through `llm_providers.py`.
-Set these in the environment or `.env`; only the keys are required.
+All LLM calls (agents and AI explanations) go through `llm_providers.py`,
+which uses Anthropic Claude. Gemini support has been removed.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `LLM_ENABLED` | `true` | Turn all LLM features off without removing keys |
-| `LLM_PROVIDER_ORDER` | `gemini,claude` | Primary first, then fallbacks |
-| `GEMINI_API_KEY` | — | Google key (AI Studio `AIza…` or Cloud `AQ.` key) |
-| `GEMINI_MODEL` | `gemini-3.5-flash` | |
-| `GEMINI_BACKEND` | `auto` | `public` = Gemini API (generativelanguage.googleapis.com); `vertex` = Vertex AI express mode (aiplatform.googleapis.com); `auto` = `AQ.` keys try Vertex, then fall back to the public endpoint if the key is blocked for Vertex |
-| `ANTHROPIC_API_KEY` | — | Claude fallback |
+| `LLM_ENABLED` | `true` | Turn all LLM features off without removing the key |
+| `ANTHROPIC_API_KEY` | — | Required for AI features |
 | `CLAUDE_MODEL` | `claude-haiku-4-5-20251001` | |
 | `LLM_TIMEOUT_SECONDS` | `30` | Per-request timeout |
 
 Failures are reported as non-sensitive diagnostic codes with a remediation
-hint (e.g. `API_KEY_SERVICE_BLOCKED`, `MODEL_NOT_FOUND`, `INVALID_KEY`,
-`RATE_LIMITED`, `EMPTY_RESPONSE`), on the System & AI page and in the
-explanation dialog. Keys are never logged or displayed. *System & AI → Test
-connection* probes each provider with a fixed prompt and no application data.
+hint (e.g. `INVALID_KEY`, `MODEL_NOT_FOUND`, `RATE_LIMITED`), on the System &
+AI page and in the explanation dialog. Keys are never logged or displayed.
+*System & AI → Test connection* sends a fixed prompt and no application data.
+
+### Storage (BigQuery)
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AGRI_STORE` | `memory` | `bigquery` persists to BigQuery; anything else keeps data in memory |
+| `BQ_DATASET` | `treasury_analytics` | Dataset holding the `agri_*` tables |
+| `BQ_PROJECT` | client default | Optional project override |
+
+With `AGRI_STORE=bigquery` the app creates and uses these tables in
+`BQ_DATASET`: `agri_trades`, `agri_limits`, `agri_confirmations`,
+`agri_exception_actions`, `agri_audit_events`, `agri_market_prices`,
+`agri_meta`. They are **append-only**: each save adds a row, the latest row
+per trade/limit is current, and *Reset demo data* starts a new `generation`
+instead of deleting anything. To see current trades in the BigQuery console:
+
+```sql
+SELECT * FROM `treasury_analytics.agri_trades`
+WHERE generation = (SELECT MAX(generation) FROM `treasury_analytics.agri_meta`)
+QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY saved_at DESC) = 1
+```
+
+The app itself uses only streaming inserts and `tabledata.list`, so its
+service account needs **BigQuery Data Editor on the dataset only** (no
+project-level `bigquery.jobs.create`). State is loaded once at start-up and
+written through, so run a **single instance** (`--max-instances=1`). If
+BigQuery is unreachable at start-up the app falls back to memory and says
+so in the UI; a failed write returns an error and changes nothing.
+Market prices remain a synthetic feed: one snapshot per day is generated and
+stored in `agri_market_prices`.
 
 ### Layout
 
 ```
 agri/                 # deterministic engine + service layer (no Flask)
   models.py validation.py valuation.py risk.py monitoring.py
-  reference.py demo_data.py repository.py audit.py service.py ai_payload.py
+  reference.py demo_data.py repository.py bq_repository.py audit.py service.py ai_payload.py
 agri_api.py           # Flask blueprint: /api/agri/*
-llm_providers.py      # LLM provider order, Gemini routing, diagnostics
+llm_providers.py      # Claude calls and diagnostics
 agri.html static/     # UI (vanilla JS/CSS, no build step)
 tests/                # pytest suite
 ```
-
-**Persistence:** trades, limits, exception actions and audit events live in
-`InMemoryRepository` and reset when the service restarts. None of the existing
-BigQuery tables (`counterparties`, `agent_memos`, `deposits`) fits trades or
-audit events, and this prototype does not connect to BigQuery. To persist,
-implement the `Repository` interface in `agri/repository.py` against an
-approved store; the calculation code stays the same.
 
 ### Run locally
 
@@ -95,9 +113,20 @@ pip install -r requirements.txt
 SKIP_IAP_CHECK=True python dashboard.py      # http://localhost:8081
 ```
 
-(PowerShell: `$env:SKIP_IAP_CHECK="True"; python dashboard.py`.) LLM keys in
-`.env` are optional; without them the AI features report "not configured" and
-everything else works.
+(PowerShell: `$env:SKIP_IAP_CHECK="True"; python dashboard.py`.) Locally the
+store defaults to memory; set `AGRI_STORE=bigquery` (with Application Default
+Credentials) to use BigQuery. `ANTHROPIC_API_KEY` is optional; without it the
+AI features report "not configured" and everything else works.
+
+### Deploy the dashboard (Cloud Run)
+
+`deploy.sh` rebuilds the whole platform, including the load balancer. To ship
+only a new dashboard version:
+
+```bash
+gcloud builds submit --config cloudbuild.dash.yaml .
+gcloud run deploy treasury-dashboard --region europe-west4   --image europe-west4-docker.pkg.dev/dttl-nl-genai-sandbox/treasury-repo/treasury-platform   --update-env-vars AGRI_STORE=bigquery --max-instances 1
+```
 
 ### Run tests
 
@@ -309,23 +338,6 @@ gcloud container images delete gcr.io/${PROJECT_ID}/${SERVICE_NAME} --quiet
 | Cloud Run returns 500 | Check logs: `gcloud logging read "resource.type=cloud_run_revision" --limit 20` |
 | No rows in BigQuery after upload | Verify the Pub/Sub subscription exists and points to the correct Cloud Run URL |
 | `BUCKET` or `BQ_DATASET` not set errors | Re-export the environment variables (they don't persist across shell sessions) |
-
-## Gemini / GenAI Tool Invocation Fix
-
-This app uses Gemini with built-in Google tools such as `google_search`. In the current Google GenAI SDK, these tools require an explicit tool configuration:
-
-```python
-config=types.GenerateContentConfig(
-    tools=[{"google_search": {}}],
-    toolConfig=types.ToolConfig(includeServerSideToolInvocations=True),
-    temperature=0.3,
-    max_output_tokens=2048,
-)
-```
-
-Without `toolConfig=types.ToolConfig(includeServerSideToolInvocations=True)`, Gemini returns:
-
-`google.genai.errors.ClientError: 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'Please enable tool_config.include_server_side_tool_invocations to use Built-in tools with Function calling.', 'status': 'INVALID_ARGUMENT'}}`
 
 ## Cloud Run Authentication Notes
 

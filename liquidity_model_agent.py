@@ -233,8 +233,7 @@ def project_cashflow(rows: list[dict], opening_balance: float = 0.0,
     }
 
 
-def _build_commentary(projection: dict, counterparty: str | None,
-                      provider: str | None = None) -> str:
+def _build_commentary(projection: dict, counterparty: str | None) -> str:
     """Ask the LLM for a concise (<=6 sentence) treasury commentary."""
     weeks_txt = "\n".join(
         f"  {w['week']} ({w['period']}): inflows {w['inflows']:,.0f}, "
@@ -256,12 +255,12 @@ def _build_commentary(projection: dict, counterparty: str | None,
         "Flag any week where the closing or intra-period balance turns negative, identify "
         "the largest cash drains, and give one actionable funding or hedging recommendation."
     )
-    raw = call_llm(prompt, temperature=0.3, trace_label="LIQ_MODEL", provider=provider)
+    raw = call_llm(prompt, temperature=0.3, trace_label="LIQ_MODEL")
     return summarize_to_sentences(raw, max_sentences=6)
 
 
 def run(files: list[tuple[bytes, str]], opening_balance: float = 0.0,
-        counterparty: str | None = None, provider: str | None = None) -> dict:
+        counterparty: str | None = None) -> dict:
     """Entry point: parse files, project cashflow, attach LLM commentary.
 
     Args:
@@ -304,7 +303,7 @@ def run(files: list[tuple[bytes, str]], opening_balance: float = 0.0,
             "include a date column and an amount column with a recognizable category."
         )
     else:
-        projection["commentary"] = _build_commentary(projection, counterparty, provider=provider)
+        projection["commentary"] = _build_commentary(projection, counterparty)
 
     projection["files"] = parsed_files
     projection["counterparty"] = counterparty

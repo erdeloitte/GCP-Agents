@@ -13,12 +13,16 @@ output is never stored as a figure.
 """
 import json
 import logging
+import os
+from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, request
 
 import llm_providers
 from agri import ai_payload
 from agri import reference as ref
+from agri.bq_repository import PersistenceError
+from agri.repository import InMemoryRepository
 from agri.service import AgriService, ROLES, ServiceError
 from llm_providers import LLMResult
 
@@ -32,10 +36,28 @@ DEMO_HEADER = "X-Demo-User"
 _service: AgriService | None = None
 
 
+def _build_repository():
+    """AGRI_STORE=bigquery persists to BigQuery (BQ_DATASET, tables agri_*);
+    anything else, or a BigQuery failure at start-up, uses the in-memory store
+    and says so in the UI rather than implying persistence."""
+    now = datetime.now(timezone.utc)
+    if os.getenv("AGRI_STORE", "memory").strip().lower() == "bigquery":
+        try:
+            from agri.bq_repository import BigQueryRepository, BigQueryStore
+            store = BigQueryStore(os.getenv("BQ_PROJECT") or None, os.getenv("BQ_DATASET", "treasury_analytics"))
+            return BigQueryRepository(now, store)
+        except Exception as e:
+            logger.error("BigQuery store unavailable, falling back to in-memory: %s", e)
+            repo = InMemoryRepository(now)
+            repo.unavailable_note = f"BigQuery is unavailable ({type(e).__name__}); changes will NOT be saved. "
+            return repo
+    return InMemoryRepository(now)
+
+
 def get_service() -> AgriService:
     global _service
     if _service is None:
-        _service = AgriService()
+        _service = AgriService(repo=_build_repository())
     return _service
 
 
@@ -60,6 +82,13 @@ def _body() -> dict:
     if not isinstance(body, dict):
         raise ServiceError("Expected a JSON object body.", status=400)
     return body
+
+
+@agri_bp.errorhandler(PersistenceError)
+def _persistence_error(e: PersistenceError):
+    logger.error("Persistence failure: %s", e)
+    return jsonify({"error": "Could not save to the database (BigQuery). The change was not applied; "
+                             "please retry."}), 503
 
 
 @agri_bp.errorhandler(ServiceError)
@@ -87,7 +116,7 @@ def session_info():
 
 @agri_bp.get("/reference")
 def reference_data():
-    return jsonify(ref.reference_payload())
+    return jsonify({**ref.reference_payload(), "persistence": get_service().repo.describe()})
 
 
 @agri_bp.get("/dashboard")
@@ -209,7 +238,7 @@ DATA_POLICY = ("Only the allow-listed fields shown in the preview are sent to th
 
 
 def _assistant(prompt: str) -> LLMResult:
-    """Call the configured providers (with fallback). Never raises."""
+    """Call the configured provider (Claude). Never raises."""
     try:
         return llm_providers.generate(prompt, temperature=0.2, max_tokens=600, trace_label="AGRI_EXPLAIN")
     except Exception as e:  # never let AI failure break the core
@@ -242,8 +271,7 @@ def _field_paths(data, prefix="") -> list:
 
 def _ai_config() -> dict:
     st = llm_providers.status()
-    return {"enabled": st["enabled"], "order": st["order"],
-            "configured": [p["provider"] for p in st["providers"] if p["configured"]]}
+    return {k: st[k] for k in ("enabled", "provider", "configured", "model")}
 
 
 @agri_bp.get("/ai/status")
@@ -253,8 +281,8 @@ def ai_status():
 
 @agri_bp.post("/ai/check")
 def ai_check():
-    """Probe each provider with a fixed prompt. Sends no application data."""
-    return jsonify({"results": llm_providers.check(), "prompt": llm_providers.CHECK_PROMPT,
+    """Probe the provider with a fixed prompt. Sends no application data."""
+    return jsonify({"result": llm_providers.check(), "prompt": llm_providers.CHECK_PROMPT,
                     "status": llm_providers.status()})
 
 
@@ -290,5 +318,5 @@ def ai_explain():
     })
 
 
-AI_UNAVAILABLE = ("No AI provider could answer — see the diagnostics below. "
+AI_UNAVAILABLE = ("The AI provider could not answer — see the diagnostic below. "
                   "All deterministic results are unaffected.")

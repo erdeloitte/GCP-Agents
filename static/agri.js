@@ -40,8 +40,7 @@
   const hhmm = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? "—" : d.toISOString().slice(11, 16) + " UTC"; };
   const commodityName = (k) => (REF && REF.commodities[k] ? REF.commodities[k].name : k);
   const label = (s) => String(s || "").replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
-  const PROVIDER = { gemini: "Gemini", claude: "Claude" };
-  const ENDPOINT = { public: "Gemini API", vertex: "Vertex AI", auto: "auto-select" };
+  const PROVIDER = { claude: "Claude (Anthropic)" };
 
   async function api(path, opts = {}) {
     const res = await fetch("/api/agri" + path, {
@@ -190,15 +189,15 @@
     let p;
     try { p = await api("/ai/preview", { method: "POST", body: { topic, id } }); }
     catch (e) { $("#dlg-body").innerHTML = `<div class="alert alert-error">${esc(e.message)}</div>`; return; }
-    const chain = p.order.map((x, i) => `${PROVIDER[x] || x} ${i === 0 ? "(primary)" : "(fallback)"}${p.configured.includes(x) ? "" : " — not configured"}`).join(" → ");
-    const canSend = p.enabled && p.configured.length > 0;
+    const chain = `${PROVIDER[p.provider] || p.provider} · ${p.model}`;
+    const canSend = p.enabled && p.configured;
     $("#dlg-body").innerHTML = `
       <p>${AI}</p>
       <p>The assistant explains figures the deterministic engine has already calculated. It cannot change data, approve trades, change limits or apply overrides.</p>
       <p style="margin-bottom:2px"><strong>Data to be sent</strong> <span class="muted">(${p.fields.length} fields · to ${esc(chain)})</span></p>
       <pre class="payload" aria-label="Exact payload">${esc(JSON.stringify(p.payload.data, null, 2))}</pre>
       <p class="muted" style="font-size:12px"><strong>Never sent:</strong> ${p.never_sent.map(esc).join(", ")}.</p>
-      ${canSend ? "" : `<div class="alert alert-warn">${p.enabled ? "No AI provider is configured." : "AI features are disabled (LLM_ENABLED=false)."} See <a href="#/system">System &amp; AI</a>. All deterministic results remain available.</div>`}`;
+      ${canSend ? "" : `<div class="alert alert-warn">${p.enabled ? "The AI provider is not configured." : "AI features are disabled (LLM_ENABLED=false)."} See <a href="#/system">System &amp; AI</a>. All deterministic results remain available.</div>`}`;
     setFoot([{ text: "Send to AI", disabled: !canSend, onClick: () => sendToAI(topic, id) }]);
   }
 
@@ -207,13 +206,11 @@
     setFoot([], "Close");
     try {
       const r = await api("/ai/explain", { method: "POST", body: { topic, id, confirm: true } });
-      const failed = r.attempts.filter((a) => !a.ok && a.diagnostic);
       $("#dlg-body").innerHTML = `
-        ${failed.length ? `<div class="alert ${r.available ? "alert-warn" : "alert-error"}"><strong>${r.available ? "Fallback used." : "No provider answered."}</strong><ul>${failed.map((a) => `<li>${diagHtml(a.diagnostic)}</li>`).join("")}</ul></div>` : ""}
-        ${r.notes.length ? `<div class="alert alert-info">${r.notes.map(esc).join("<br>")}</div>` : ""}
+        ${r.diagnostic ? `<div class="alert alert-error">${diagHtml(r.diagnostic)}</div>` : ""}
         <section class="panel ai"><div class="panel-head"><h2>Explanation</h2>${AI}</div>
           <div class="panel-body"><p style="margin:0" ${r.available ? "" : 'class="muted"'}>${esc(r.text).replace(/\n/g, "<br>")}</p></div>
-          <div class="panel-note">${r.available ? `Answered by ${esc(PROVIDER[r.provider] || r.provider)} · ${esc(r.model)}${r.backend ? ` · ${esc(ENDPOINT[r.backend] || r.backend)}` : ""}<br>` : ""}${esc(r.notice)}</div></section>`;
+          <div class="panel-note">${r.available ? `Answered by ${esc(PROVIDER[r.provider] || r.provider)} · ${esc(r.model)}<br>` : ""}${esc(r.notice)}</div></section>`;
     } catch (e) { $("#dlg-body").innerHTML = `<div class="alert alert-error">${esc(e.message)}</div>`; }
     loadAiStatus();
   }
@@ -264,15 +261,13 @@
     const chip = $("#ai-chip");
     try {
       const s = await api("/ai/status");
-      const ready = s.providers.filter((p) => p.configured);
       let cls = "", text;
       if (!s.enabled) text = "AI off";
-      else if (!ready.length) text = "AI not configured";
+      else if (!s.configured) text = "AI not configured";
       else {
-        const primary = s.providers[0];
-        const failed = primary.last && !primary.last.ok;
-        cls = failed || !primary.configured ? "warn" : "ok";
-        text = `AI: ${ready.map((p) => PROVIDER[p.provider]).join(" → ")}${failed ? " (fallback active)" : ""}`;
+        const failed = s.last && !s.last.ok;
+        cls = failed ? "warn" : "ok";
+        text = `AI: Claude${failed ? " (last call failed)" : ""}`;
       }
       chip.innerHTML = `<span class="dot ${cls}" aria-hidden="true"></span>${esc(text)}`;
     } catch (e) { chip.textContent = "AI status unavailable"; }
@@ -985,58 +980,50 @@
           <li>Aggregation by commodity, maturity, portfolio, counterparty</li><li>Limit utilisation, warnings and breaches</li>
           <li>Exception rules (stale or missing inputs, unmatched records, maturities, off-market prices)</li><li>Maker-checker review, reason-coded overrides, append-only audit</li></ul></div></section>
         <section class="panel ai"><div class="panel-head"><h2>AI — assistive only</h2></div><div class="panel-body"><ul>
-          <li>Plain-language explanation of figures the engine already calculated, after you preview and confirm the data sent</li>
+          <li>Plain-language explanation (Claude) of figures the engine already calculated, after you preview and confirm the data sent</li>
           <li>Advisory counterparty memos (market, credit, liquidity agents on the <a href="/counterparty-analytics">counterparty analytics</a> page)</li>
           <li>If AI is unavailable, every core function still works</li></ul></div></section>
         <section class="panel never"><div class="panel-head"><h2>Never AI</h2></div><div class="panel-body"><ul>
           <li>Authoritative valuations, MtM, exposures, sensitivities</li><li>Limit setting or utilisation</li><li>Trade approval, rejection or overrides</li>
           <li>Accounting entries or financial reporting</li><li>Acting as the system of record</li></ul></div></section>
       </div>
-      <section class="panel"><div class="panel-head"><h2>AI providers</h2><div class="page-actions">
+      <section class="panel"><div class="panel-head"><h2>AI provider</h2><div class="page-actions">
           <span class="tag ${s.enabled ? "tag-ok" : "tag-low"}">${s.enabled ? "Enabled" : "Disabled"}</span>
-          <button class="btn btn-sm" id="btn-ai-check" ${s.enabled ? "" : "disabled"}>Test connection</button></div></div>
+          <button class="btn btn-sm" id="btn-ai-check" ${s.enabled && s.configured ? "" : "disabled"}>Test connection</button></div></div>
         ${s.invalid_settings.length ? `<div class="panel-body" style="padding-bottom:0"><div class="alert alert-warn"><strong>Configuration warnings</strong><ul>${s.invalid_settings.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div></div>` : ""}
-        <div id="ai-grid"></div>
-        <div id="ai-check-out"></div>
-        <div class="panel-note"><p><strong>Configuration</strong> (environment or <span class="mono">.env</span>): <span class="mono">LLM_ENABLED</span>, <span class="mono">LLM_PROVIDER_ORDER</span>, <span class="mono">GEMINI_API_KEY</span>, <span class="mono">GEMINI_MODEL</span>, <span class="mono">GEMINI_BACKEND</span> (auto | public | vertex), <span class="mono">ANTHROPIC_API_KEY</span>, <span class="mono">CLAUDE_MODEL</span>, <span class="mono">LLM_TIMEOUT_SECONDS</span>. Keys are never displayed.</p>
+        <div class="panel-body"><dl class="kv">
+          <div><dt>Provider</dt><dd>${esc(PROVIDER[s.provider] || s.provider)}</dd></div>
+          <div><dt>Model</dt><dd class="mono">${esc(s.model)}</dd></div>
+          <div><dt>API key</dt><dd>${s.configured ? '<span class="tag tag-ok">Present</span>' : '<span class="tag tag-low">Missing</span>'}</dd></div>
+          <div><dt>Last result</dt><dd>${!s.last ? '<span class="muted">Not used since start</span>' : s.last.ok ? `<span class="tag tag-ok">OK</span> <span class="sub">${ts(s.last.at)}</span>` : `<span class="tag tag-high">Failed</span> <span class="sub">${ts(s.last.at)}</span>`}</dd></div></dl>
+          ${s.last && !s.last.ok && s.last.diagnostic ? `<div class="alert alert-warn" style="margin:12px 0 0">${diagHtml(s.last.diagnostic)}</div>` : ""}
+          <div id="ai-check-out"></div></div>
+        <div class="panel-note"><p><strong>Configuration</strong> (environment or <span class="mono">.env</span>): <span class="mono">LLM_ENABLED</span>, <span class="mono">ANTHROPIC_API_KEY</span>, <span class="mono">CLAUDE_MODEL</span>, <span class="mono">LLM_TIMEOUT_SECONDS</span>. Keys are never displayed.</p>
           <p>“Test connection” sends only the fixed text “Reply with the single word OK.” — no application data.</p></div></section>
       <section class="panel"><div class="panel-head"><h2>Data sent to AI providers</h2></div><div class="panel-body">
         <p style="margin-top:0">${esc(s.data_policy)}</p><p class="muted" style="margin-bottom:0"><strong>Never sent:</strong> ${s.never_sent.map(esc).join(", ")}.</p></div></section>
       <section class="panel"><div class="panel-head"><h2>Data &amp; persistence</h2></div><div class="panel-body">
         <p style="margin-top:0">${esc(REF.persistence.note)}</p>
         <ul class="list"><li>All trades, counterparties, prices, FX rates, broker confirmations and limits are <strong>synthetic</strong>.</li>
+          <li>${REF.persistence.persistent ? `Storage: BigQuery <span class="mono">${esc(REF.persistence.dataset)}</span>, tables ${REF.persistence.tables.map((t) => `<span class="mono">${esc(t)}</span>`).join(", ")}; append-only (generation ${REF.persistence.generation}).` : "Storage: in memory only — not saved."}</li>
           <li>Demo identities replace real authentication and entitlements (IAP still protects the deployed service).</li>
           <li>${REF.valuation_methodology.map(esc).join("; ")}.</li>
           <li>Out of scope: integrations (exchange or broker feeds, ETRM, accounting), physical logistics, settlement, payments.</li></ul></div></section>
-      <section class="panel"><div class="panel-head"><h2>Demo controls</h2></div><div class="panel-body"><p style="margin-top:0">Reload the synthetic data set. This discards all changes made in this session for every user.</p>
+      <section class="panel"><div class="panel-head"><h2>Demo controls</h2></div><div class="panel-body"><p style="margin-top:0">Reload the synthetic data set for every user. ${REF.persistence.persistent ? "Earlier data stays in BigQuery as a previous generation but is no longer shown." : "All changes since the last restart are discarded."}</p>
         <button class="btn btn-danger" id="btn-reset">Reset demo data…</button></div></section>`;
-    const lastCell = (p) => {
-      if (!p.configured) return '<span class="muted">Not configured</span>';
-      if (!p.last) return '<span class="muted">Not used since start</span>';
-      if (p.last.ok) return `<span class="tag tag-ok">OK</span> <span class="sub">${ts(p.last.at)}</span>`;
-      return `<span class="tag tag-high">Failed</span><span class="sub">${ts(p.last.at)}</span><div style="margin-top:4px">${diagHtml(p.last.diagnostic)}</div>`;
-    };
-    mountGrid($("#ai-grid"), "ai-prov", [
-      { key: "order", label: "Order", nosort: true, render: (p) => (s.providers.indexOf(p) === 0 ? "Primary" : "Fallback") },
-      { key: "provider", label: "Provider", nosort: true, render: (p) => esc(PROVIDER[p.provider] || p.provider) },
-      { key: "configured", label: "Key", nosort: true, render: (p) => (p.configured ? '<span class="tag tag-ok">Present</span>' : '<span class="tag tag-low">Missing</span>') },
-      { key: "model", label: "Model", nosort: true, cls: () => "mono" },
-      { key: "backend", label: "Endpoint", nosort: true, render: (p) => (p.backend ? `${esc(ENDPOINT[p.backend] || p.backend)}${p.provider === "gemini" && s.gemini_backend_setting === "auto" ? ' <span class="muted">(auto)</span>' : ""}` : "Anthropic API") },
-      { key: "last", label: "Last result", nosort: true, cls: () => "wrap", render: lastCell },
-    ], s.providers, { caption: "AI providers" });
     $("#btn-ai-check").addEventListener("click", async (ev) => {
       ev.target.disabled = true;
-      $("#ai-check-out").innerHTML = `<div class="panel-body">${loading("Testing providers…")}</div>`;
+      $("#ai-check-out").innerHTML = loading("Testing connection…");
       try {
-        const r = await api("/ai/check", { method: "POST", body: {} });
-        $("#ai-check-out").innerHTML = `<div class="panel-body"><ul class="list" style="margin:0">${r.results.map((x) => `<li>${x.ok
-          ? `<strong>${esc(PROVIDER[x.provider])}</strong>: <span class="pos">OK</span> · ${esc(x.model)}${x.backend ? ` · ${esc(ENDPOINT[x.backend])}` : ""}${x.notes.length ? `<div class="muted">${x.notes.map(esc).join(" ")}</div>` : ""}`
-          : diagHtml(x.diagnostic)}</li>`).join("")}</ul></div>`;
+        const { result: x } = await api("/ai/check", { method: "POST", body: {} });
+        $("#ai-check-out").innerHTML = x.ok
+          ? `<div class="alert alert-ok" style="margin:12px 0 0">Connection OK · ${esc(x.model)}</div>`
+          : `<div class="alert alert-error" style="margin:12px 0 0">${diagHtml(x.diagnostic)}</div>`;
         loadAiStatus();
-      } catch (e) { $("#ai-check-out").innerHTML = `<div class="panel-body"><div class="alert alert-error">${esc(e.message)}</div></div>`; }
+      } catch (e) { $("#ai-check-out").innerHTML = `<div class="alert alert-error" style="margin:12px 0 0">${esc(e.message)}</div>`; }
       ev.target.disabled = false;
     });
-    $("#btn-reset").addEventListener("click", () => openDialog("Reset demo data?", `<div class="alert alert-warn">All trades, reviews, overrides and limit changes made since the last restart will be discarded and the synthetic data set reloaded.</div>`,
+    $("#btn-reset").addEventListener("click", () => openDialog("Reset demo data?", `<div class="alert alert-warn">All trades, reviews, overrides and limit changes will be replaced by a fresh synthetic data set for every user.${REF.persistence.persistent ? " The current data is kept in BigQuery as a previous generation." : ""}</div>`,
       [{ text: "Reset", cls: "btn-danger", onClick: async () => { await api("/demo/reset", { method: "POST", body: {} }); dlg.close(); toast("Demo data reset"); refreshChrome(); route(); } }]));
   }
 
@@ -1091,6 +1078,7 @@
   (async function init() {
     try {
       REF = await api("/reference");
+      $("#nav-store").textContent = REF.persistence.persistent ? "Stored in BigQuery." : "In-memory store — not saved.";
       initScope();
       await loadSession();
       refreshChrome();

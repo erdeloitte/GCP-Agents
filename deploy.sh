@@ -8,8 +8,7 @@
 #   DASH_SERVICE    – Dashboard service name   (treasury-ingestor and treasury-dashboard)
 #   BUCKET          – Cloud Storage bucket     (e.g. treasury_comm_agent)
 #   BQ_DATASET      – BigQuery dataset         (e.g. treasury_analytics)
-#   GEMINI_API_KEY  – Google AI Studio key   (free tier at aistudio.google.com)
-#   ANTHROPIC_API_KEY – Claude API key for advanced features (optional)
+#   ANTHROPIC_API_KEY – Claude API key (AI explanations and agents; optional)
 
 
 set -euo pipefail
@@ -33,7 +32,6 @@ export IAP_CLIENT_ID="${IAP_CLIENT_ID:-}"
 export IAP_CLIENT_SECRET="${IAP_CLIENT_SECRET:-}"
 export LB_DOMAIN="${LB_DOMAIN:-}"
 export IAP_USERS="${IAP_USERS:-eruizduarte@deloitte.nl assadie@deloitte.nl}"
-export GEMINI_API_KEY="${GEMINI_API_KEY:-}"
 export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
 
 
@@ -45,9 +43,8 @@ for var in PROJECT_ID REGION BUCKET BQ_DATASET; do
   fi
 done
 
-if [[ -z "${GEMINI_API_KEY:-}" ]]; then
-  echo "WARNING: GEMINI_API_KEY not set — the AI chat feature will return 503."
-  echo "         Get a free key at https://aistudio.google.com/app/apikey"
+if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+  echo "WARNING: ANTHROPIC_API_KEY not set — AI features will report 'not configured'."
 fi
 
 if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
@@ -157,7 +154,7 @@ for SVC in ${DASH_SERVICES}; do
     --platform managed \
     --no-allow-unauthenticated \
     --ingress internal-and-cloud-load-balancing \
-    --set-env-vars "BUCKET=${BUCKET},BQ_DATASET=${BQ_DATASET},GEMINI_API_KEY=${GEMINI_API_KEY},ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"
+    --set-env-vars "BUCKET=${BUCKET},BQ_DATASET=${BQ_DATASET},ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"
 done
 
 echo "==> Cleaning up any stale load balancer resources..."

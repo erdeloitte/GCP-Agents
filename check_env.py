@@ -64,14 +64,6 @@ else:
     print(f"   Make sure .env has: ANTHROPIC_API_KEY=sk-ant-v1-...")
     sys.exit(1)
 
-# Check 4: Check GEMINI_API_KEY too
-print("\n4. Checking GEMINI_API_KEY...")
-gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
-if gemini_key:
-    print(f"✅ GEMINI_API_KEY found: {gemini_key[:20]}...")
-else:
-    print(f"⚠️  GEMINI_API_KEY not found (optional)")
-
 # Check 5: Check other important vars
 print("\n5. Checking other environment variables...")
 vars_to_check = ["BQ_DATASET", "BUCKET", "PORT"]

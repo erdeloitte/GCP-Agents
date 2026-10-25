@@ -8,7 +8,7 @@ Endpoints:
   GET  /api/counterparties    – counterparty table data
   GET  /api/stats             – KPI summary
   POST /api/upload            – local file ingestion
-  POST /api/chat              – Gemini free-form Q&A
+  POST /api/chat              – Claude free-form Q&A
   POST /api/agent/market      – Market Risk Agent
   POST /api/agent/credit      – Credit Risk Agent
   POST /api/agent/liquidity   – Liquidity & Settlement Agent
@@ -49,15 +49,12 @@ app = Flask(
 app.register_blueprint(agri_bp)
 
 # Priority: OS Env (Cloud Run) > .env file
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY", "")
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY") or os.getenv("TAVILY_API_KEY", "")
 
 
-if not GEMINI_API_KEY:
-    logger.error("CRITICAL: GEMINI_API_KEY is not set. LLM calls will fail.")
-
-logger.info(f"Keys loaded: Gemini={bool(GEMINI_API_KEY)}, Anthropic={bool(ANTHROPIC_API_KEY)}")
+if not ANTHROPIC_API_KEY:
+    logger.error("ANTHROPIC_API_KEY is not set. AI features will report 'not configured'.")
 
 # -- IAP Authentication Config --
 # Audience format: /projects/<PROJECT_NUMBER>/global/backendServices/<BACKEND_SERVICE_ID>
@@ -152,19 +149,9 @@ def health():
     """Simple connectivity check."""
     return "OK", 200
 
-def _llm(prompt: str, temperature: float = 0.3, provider: str | None = None) -> str:
+def _llm(prompt: str, temperature: float = 0.3) -> str:
     from agent_base import call_llm
-    return call_llm(prompt, temperature=temperature, provider=provider)
-
-
-def _get_provider() -> str | None:
-    """Read the LLM engine selection ("gemini" | "claude") from JSON body or form."""
-    provider = None
-    if request.is_json:
-        provider = (request.get_json(silent=True) or {}).get("provider")
-    provider = provider or request.form.get("provider") or request.args.get("provider")
-    provider = (provider or "").strip().lower()
-    return provider if provider in ("gemini", "claude") else None
+    return call_llm(prompt, temperature=temperature)
 
 
 def _resolve_counterparty(name: str) -> tuple[str, dict | None]:
@@ -319,9 +306,8 @@ def api_chat():
 
     if not question:
         return jsonify({"error": "No question provided"}), 400
-    # Allow the request through if EITHER Gemini or Claude is configured (Claude is the fallback).
-    if not GEMINI_API_KEY and not ANTHROPIC_API_KEY:
-        return jsonify({"error": "No LLM configured (set GEMINI_API_KEY or ANTHROPIC_API_KEY)"}), 503
+    if not ANTHROPIC_API_KEY:
+        return jsonify({"error": "No LLM configured (set ANTHROPIC_API_KEY)"}), 503
 
     # 1. Internal BigQuery context (financials, deposits, prior agent memos).
     context = build_llm_context(company_name=company)
@@ -362,7 +348,7 @@ def api_chat():
         f"{STANDARD_REPORT_INSTRUCTION}\n"
         f"DATA:\n{context}\n\nQUESTION: {question}"
     )
-    answer = summarize_to_sentences(_llm(prompt, provider=_get_provider()), max_sentences=6)
+    answer = summarize_to_sentences(_llm(prompt), max_sentences=6)
     return jsonify({"answer": answer})
 
 
@@ -384,7 +370,7 @@ def api_agent_market():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    result = market_agent.run(canonical, data, provider=_get_provider())
+    result = market_agent.run(canonical, data)
     return jsonify(result)
 
 
@@ -396,7 +382,7 @@ def api_agent_credit():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    result = credit_agent.run(canonical, data, provider=_get_provider())
+    result = credit_agent.run(canonical, data)
     return jsonify(result)
 
 
@@ -408,7 +394,7 @@ def api_agent_liquidity():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    result = liquidity_agent.run(canonical, data, provider=_get_provider())
+    result = liquidity_agent.run(canonical, data)
     return jsonify(result)
 
 
@@ -424,13 +410,12 @@ def api_agent_orchestrate():
     # Run all three agents in PARALLEL using a thread pool to cut latency
     # from ~60–90s (serial) down to ~20–30s (limited by slowest agent).
     # -----------------------------------------------------------------------
-    provider = _get_provider()
     results: dict = {}
     errors:  dict = {}
     tasks = {
-        "market":    lambda: market_agent.run(canonical, data, provider=provider),
-        "credit":    lambda: credit_agent.run(canonical, data, provider=provider),
-        "liquidity": lambda: liquidity_agent.run(canonical, data, provider=provider),
+        "market":    lambda: market_agent.run(canonical, data),
+        "credit":    lambda: credit_agent.run(canonical, data),
+        "liquidity": lambda: liquidity_agent.run(canonical, data),
     }
     with ThreadPoolExecutor(max_workers=3) as pool:
         future_map = {pool.submit(fn): key for key, fn in tasks.items()}
@@ -472,7 +457,7 @@ def api_agent_orchestrate():
         f"LIQUIDITY AGENT:\n{liquidity['memo']}\nExposure: {liquidity['exposure_proposal']}\n\n"
         "Write the executive summary now."
     )
-    summary = _llm(summary_prompt, temperature=0.3, provider=provider)
+    summary = _llm(summary_prompt, temperature=0.3)
 
     orch_record = build_memo_record(
         counterparty=canonical,
@@ -530,7 +515,6 @@ def api_liquidity_model():
     try:
         result = liquidity_model_agent.run(
             files, opening_balance=opening_balance, counterparty=counterparty,
-            provider=_get_provider(),
         )
     except Exception as e:
         logger.exception("Liquidity model failed")

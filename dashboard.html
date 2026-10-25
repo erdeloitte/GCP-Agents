@@ -678,8 +678,7 @@
     <div class="engine-switch">
       <span class="engine-switch-label">AI Engine</span>
       <div class="engine-btns">
-        <button class="engine-btn active" id="engine-gemini" onclick="setEngine('gemini')">Gemini</button>
-        <button class="engine-btn" id="engine-claude" onclick="setEngine('claude')">Claude</button>
+        <button class="engine-btn active" id="engine-claude" disabled>Claude</button>
       </div>
     </div>
   </div>
@@ -709,7 +708,7 @@
           <strong style="color: var(--black);">1. Smart Extraction</strong><br/>OCR & Claude Vision ingest financial docs into BigQuery.
         </div>
         <div style="background: var(--gray-50); padding: 10px; border-radius: 4px;">
-          <strong style="color: var(--black);">2. Market Grounding</strong><br/>Gemini searches live news, stock prices, and commodity trends.
+          <strong style="color: var(--black);">2. Market Grounding</strong><br/>Claude reviews live news, stock prices, and commodity trends.
         </div>
         <div style="background: var(--gray-50); padding: 10px; border-radius: 4px;">
           <strong style="color: var(--black);">3. Risk Analysis</strong><br/>Specialist agents calculate Leverage, Liquidity, and Exposure.
@@ -956,16 +955,15 @@ total_debt_usd_m, current_ratio</pre>
 <script>
 let allRows = [];
 let msgId = 0;
-let llmProvider = 'gemini';
+let llmProvider = 'claude';
 
 /* LLM engine selector */
 function setEngine(p) {
   llmProvider = p;
-  document.getElementById('engine-gemini').classList.toggle('active', p === 'gemini');
   document.getElementById('engine-claude').classList.toggle('active', p === 'claude');
 }
 function engineLabel() {
-  return llmProvider === 'claude' ? 'Claude Haiku 4.5' : 'Gemini 3.5 Flash';
+  return 'Claude Haiku 4.5';
 }
 
 /* Clock */

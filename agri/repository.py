@@ -121,3 +121,9 @@ class InMemoryRepository(Repository):
     def list_audit(self):
         with self._lock:
             return copy.deepcopy(self._audit)
+
+    def describe(self) -> dict:
+        return {"store": "in-memory", "persistent": False,
+                "note": getattr(self, "unavailable_note", "") +
+                "Demo data is held in memory and resets when the service restarts. "
+                "No database is connected for trades, limits or audit events."}

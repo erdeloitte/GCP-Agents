@@ -48,6 +48,43 @@ def upcoming_months(commodity: str, today: date, n: int = 3) -> list[str]:
     return out
 
 
+def _listed_index(commodity: str, front: str, month: str) -> int:
+    """Listed months from `front` up to (not including) `month`; 0 if not after front."""
+    listed = ref.COMMODITIES[commodity]["listed_months"]
+    y, m = int(front[:4]), int(front[5:])
+    n = 0
+    while f"{y:04d}-{m:02d}" < month:
+        if m in listed:
+            n += 1
+        m += 1
+        if m > 12:
+            y, m = y + 1, 1
+    return n
+
+
+def synthetic_marks(now: datetime, trades=()) -> list[dict]:
+    """One synthetic feed snapshot published at `now`: marks for the next listed
+    months plus any later month still held by `trades` (so stored trades keep a
+    mark as the calendar rolls). One mark is stale and one missing by design."""
+    today = now.date()
+    current = today.strftime("%Y-%m")
+    out = []
+    for c in ref.COMMODITIES:
+        ups = upcoming_months(c, today)
+        held = {t["contract_month"] for t in trades if t["commodity"] == c and t["contract_month"] >= current}
+        for month in sorted(set(ups) | held):
+            idx = ups.index(month) if month in ups else _listed_index(c, ups[0], month)
+            if month in ups and (c, idx) == MISSING_MARK:
+                continue
+            age = timedelta(hours=60) if month in ups and (c, idx) == STALE_MARK else timedelta(hours=2)
+            out.append(MarketPrice(
+                commodity=c, contract_month=month, price=mark_level(c, idx),
+                price_unit=ref.COMMODITIES[c]["price_unit"],
+                as_of=(now - age).replace(microsecond=0).isoformat(),
+            ).to_dict())
+    return out
+
+
 def mark_level(commodity: str, idx: int) -> float:
     return round(BASE_PRICE[commodity] * (1 + CURVE_STEP * idx), 2)
 
@@ -128,17 +165,7 @@ def build(now: datetime) -> dict:
     today = now.date()
     months = {c: upcoming_months(c, today) for c in ref.COMMODITIES}
 
-    prices = []
-    for c, ms in months.items():
-        for i, m in enumerate(ms):
-            if (c, i) == MISSING_MARK:
-                continue
-            age = timedelta(hours=60) if (c, i) == STALE_MARK else timedelta(hours=2)
-            prices.append(MarketPrice(
-                commodity=c, contract_month=m, price=mark_level(c, i),
-                price_unit=ref.COMMODITIES[c]["price_unit"],
-                as_of=(now - age).replace(microsecond=0).isoformat(),
-            ).to_dict())
+    prices = synthetic_marks(now)
 
     trades, confirmations, audit = [], [], []
     for n, (pf, cp, c, inst, dirn, lots, idx, mult, status, extra) in enumerate(_SEED, start=1):

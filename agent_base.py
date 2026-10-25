@@ -1,6 +1,6 @@
 """agent_base.py
-Shared utilities for treasury agents: LLM calls (provider order, Gemini routing
-and fallback live in llm_providers.py) and web search via Tavily.
+Shared utilities for treasury agents: LLM calls (Claude, via llm_providers.py)
+and web search via Tavily.
 """
 import os
 import uuid
@@ -17,7 +17,6 @@ logging.basicConfig(
 )
 
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "").strip() or "gemini-3.5-flash"   # see llm_providers.py
 
 
 TICKER_MAP: dict[str, str] = {
@@ -78,37 +77,27 @@ def summarize_to_sentences(text: str, max_sentences: int = 6) -> str:
     return trimmed
 
 
-def call_llm(prompt: str, temperature: float = 0.3, trace_label: str = "LLM",
-             provider: str | None = None) -> str:
-    """Call the configured LLM providers with fallback (see llm_providers.py).
+def call_llm(prompt: str, temperature: float = 0.3, trace_label: str = "LLM") -> str:
+    """Call Claude via llm_providers.py.
 
     Args:
         prompt: The full prompt.
         temperature: Sampling temperature.
         trace_label: A label (e.g. "MARKET") tagging traceability logs so each
             agent's reasoning is identifiable in the logs.
-        provider: "gemini" | "claude" | None. Moves that engine to the front of
-            LLM_PROVIDER_ORDER; the others remain fallbacks.
-    Returns the model text, or a string starting with "ERROR:" that carries
-    non-sensitive diagnostic codes.
+    Returns the model text, or a string starting with "ERROR:" that carries a
+    non-sensitive diagnostic code.
     """
     import llm_providers
     # Traceability: log a preview of what the model is being asked to reason over.
-    logger.info(f"[{trace_label}] Prompt dispatched ({len(prompt)} chars, "
-                f"engine={provider or 'auto'}). Preview: "
+    logger.info(f"[{trace_label}] Prompt dispatched ({len(prompt)} chars). Preview: "
                 f"{prompt[:280].replace(chr(10), ' ')}…")
-    order = llm_providers.load_config().order
-    p = (provider or "").lower()
-    if p in order:
-        order = [p] + [o for o in order if o != p]
-    result = llm_providers.generate(prompt, temperature=temperature, trace_label=trace_label, order=order)
+    result = llm_providers.generate(prompt, temperature=temperature, trace_label=trace_label)
     if result.ok:
-        logger.info(f"[{trace_label}] {result.provider} output ({len(result.text)} chars): "
+        logger.info(f"[{trace_label}] output ({len(result.text)} chars): "
                     f"{result.text[:500].replace(chr(10), ' ')}…")
         return result.text
-    codes = ", ".join(f"{a['provider']}: {a['diagnostic']['code']}" for a in result.attempts
-                      if a.get("diagnostic"))
-    return f"ERROR: No LLM available ({codes or 'no providers configured'})"
+    return f"ERROR: No LLM available ({result.diagnostic['code']})"
 
 
 def web_search(query: str, max_results: int = 3) -> str:
@@ -135,11 +124,6 @@ def web_search(query: str, max_results: int = 3) -> str:
     except Exception as e:
         logger.warning(f"[WEB] Tavily search failed: {e}")
         return ""
-
-
-def call_gemini(prompt: str, temperature: float = 0.3, trace_label: str = "LLM") -> str:
-    """Alias for call_llm (backward compatibility)."""
-    return call_llm(prompt, temperature, trace_label=trace_label)
 
 
 def save_memo(record: dict) -> None:

@@ -129,22 +129,24 @@ def test_ai_explain_output_is_labelled_and_audited(client, monkeypatch):
 
     def fake(prompt):
         sent["prompt"] = prompt
-        return LLMResult(text="The corn limit is breached.", provider="claude", model="m",
-                         attempts=[{"provider": "gemini", "ok": False,
-                                    "diagnostic": {"code": "API_KEY_SERVICE_BLOCKED"}},
-                                   {"provider": "claude", "ok": True}])
+        return LLMResult(text="The corn limit is breached.", provider="claude", model="m")
     monkeypatch.setattr(agri_api, "_assistant", fake)
     r = client.post("/api/agri/ai/explain", json={"topic": "trade", "id": "AGD-0001", "confirm": True}).get_json()
     assert r["available"] is True and r["authoritative"] is False and r["provider"] == "claude"
-    assert r["attempts"][0]["diagnostic"]["code"] == "API_KEY_SERVICE_BLOCKED"
     assert "AGD-0001" not in sent["prompt"]
     ev = client.get("/api/agri/audit?entity_id=AGD-0001").get_json()[0]
     assert ev["action"] == "AI_EXPLANATION_REQUESTED" and "claude" in ev["reason"]
 
 
+def test_ai_explain_failure_carries_diagnostic(client, monkeypatch):
+    monkeypatch.setattr(agri_api, "_assistant", lambda p: LLMResult(
+        text=None, diagnostic={"provider": "claude", "code": "RATE_LIMITED", "message": "x"}))
+    r = client.post("/api/agri/ai/explain", json={"topic": "trade", "id": "AGD-0001", "confirm": True}).get_json()
+    assert r["available"] is False and r["diagnostic"]["code"] == "RATE_LIMITED"
+
+
 def test_ai_status_has_no_secrets(client, monkeypatch):
-    monkeypatch.setenv("GEMINI_API_KEY", "AIzaFAKEFAKEFAKEFAKEFAKE123")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-FAKEFAKEFAKEFAKE")
     r = client.get("/api/agri/ai/status")
     assert "FAKE" not in r.get_data(as_text=True)
-    assert all(p["configured"] for p in r.get_json()["providers"])
+    assert r.get_json()["configured"] is True and r.get_json()["provider"] == "claude"

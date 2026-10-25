@@ -1,0 +1,13 @@
+# Files never uploaded to Cloud Build (and so never baked into the image).
+.gcloudignore
+.git
+.gitignore
+#!include:.gitignore
+.env
+.env.*
+.vscode/
+.claude/
+tests/
+.pytest_cache/
+*.docx
+*.log
