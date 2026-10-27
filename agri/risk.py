@@ -9,7 +9,8 @@ from datetime import date
 
 from agri.valuation import INCLUDED_STATUSES
 
-DIMENSIONS = ["commodity", "maturity_bucket", "portfolio", "counterparty"]
+DIMENSIONS = ["commodity", "strategy", "maturity_bucket", "portfolio", "counterparty"]
+UNASSIGNED = "Unassigned"
 BUCKETS = ["0-3m", "3-6m", "6-12m", "12m+"]
 
 METRICS = {
@@ -33,7 +34,7 @@ def maturity_bucket(maturity_date: str, today: date) -> str:
 def dimension_key(trade: dict, dimension: str, today: date) -> str:
     if dimension == "maturity_bucket":
         return maturity_bucket(trade["maturity_date"], today)
-    return trade[dimension]
+    return trade.get(dimension) or UNASSIGNED
 
 
 def _empty(key: str) -> dict:

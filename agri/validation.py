@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from agri import reference as ref
+from agri import refdata
 
 _MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 MAX_TEXT = 120
@@ -48,7 +49,7 @@ def _month_index(ym: str) -> int:
 
 
 def validate_trade(data: dict, today: date, reference_price: float | None = None,
-                   is_new: bool = True) -> ValidationResult:
+                   is_new: bool = True, lookups: dict | None = None) -> ValidationResult:
     """Validate and normalise raw trade input.
 
     Args:
@@ -57,13 +58,16 @@ def validate_trade(data: dict, today: date, reference_price: float | None = None
         reference_price: current synthetic mark for the contract, if any; used
             only for the price-band warning.
         is_new: new trades may not mature in the past.
+        lookups: allowed (active) Data Setup codes per trade field; defaults to
+            the synthetic seed records.
     """
+    allowed = lookups or refdata.default_lookups()
     r = ValidationResult()
     e = r.errors
     c = r.clean
 
     for f in ("counterparty", "portfolio", "broker", "execution_ref",
-              "reference_market"):
+              "reference_market", "strategy", "delivery_location"):
         val = _text(data.get(f))
         if len(val) > MAX_TEXT:
             e[f] = f"Must be {MAX_TEXT} characters or fewer."
@@ -76,12 +80,16 @@ def validate_trade(data: dict, today: date, reference_price: float | None = None
     # Static data lists
     if not c["counterparty"]:
         e["counterparty"] = "Counterparty is required."
-    elif c["counterparty"] not in ref.COUNTERPARTIES:
-        e["counterparty"] = "Counterparty is not in the approved (demo) counterparty list."
+    elif c["counterparty"] not in allowed["counterparty"]:
+        e["counterparty"] = "Counterparty is not an active counterparty in Data Setup."
     if not c["portfolio"]:
         e["portfolio"] = "Portfolio / business unit is required."
-    elif c["portfolio"] not in ref.PORTFOLIOS:
-        e["portfolio"] = "Unknown portfolio."
+    elif c["portfolio"] not in allowed["portfolio"]:
+        e["portfolio"] = "Portfolio is not an active portfolio in Data Setup."
+    if c["broker"] and c["broker"] not in allowed["broker"]:
+        e["broker"] = "Broker is not an active broker in Data Setup."
+    if c["strategy"] and c["strategy"] not in allowed["strategy"]:
+        e["strategy"] = "Strategy is not an active strategy in Data Setup."
 
     def choice(f, options, label, upper=True):
         val = _text(data.get(f))
@@ -94,7 +102,14 @@ def validate_trade(data: dict, today: date, reference_price: float | None = None
         return val
 
     commodity = choice("commodity", list(ref.COMMODITIES), "Commodity")
+    if commodity in ref.COMMODITIES and commodity not in allowed["commodity"]:
+        e["commodity"] = "Commodity is inactive in Data Setup."
     instrument = choice("instrument_type", ref.INSTRUMENT_TYPES, "Instrument type")
+    if c["delivery_location"]:
+        if instrument and instrument != "FORWARD":
+            e["delivery_location"] = "Delivery location applies to forwards only."
+        elif c["delivery_location"] not in allowed["delivery_location"]:
+            e["delivery_location"] = "Location is not an active delivery location in Data Setup."
     choice("direction", ref.DIRECTIONS, "Direction")
     pricing = _text(data.get("pricing_type")).upper() or "FIXED"
     if pricing not in ref.PRICING_TYPES:
@@ -222,6 +237,11 @@ def validate_trade(data: dict, today: date, reference_price: float | None = None
             e["execution_ref"] = "Execution reference is required for exchange-traded trades."
     if spec and not c["reference_market"]:
         c["reference_market"] = f"{spec['exchange']} {spec['code']} {cm}".strip()
+
+    if not c["strategy"]:
+        r.warnings.append("No strategy assigned; the trade will show as 'Unassigned' in exposure by strategy.")
+    if instrument == "FORWARD" and not c["delivery_location"]:
+        r.warnings.append("No delivery location set for this forward.")
 
     # Soft check: price vs current synthetic mark
     if (spec and instrument != "OPTION" and reference_price and

@@ -13,6 +13,7 @@ import calendar
 from datetime import date, datetime, timedelta, timezone
 
 from agri import reference as ref
+from agri import refdata
 from agri.audit import make_event
 from agri.models import BrokerConfirmation, Limit, MarketPrice, Trade
 
@@ -25,6 +26,8 @@ BASE_PRICE = {
     "EURONEXT_MILLING_WHEAT": 215.0,
 }
 CURVE_STEP = 0.012   # synthetic contango per listed month
+FORWARD_LOCATION = {"CBOT_SOYBEANS": "DEMO_PORT_SA", "ICE_LDN_COCOA": "DEMO_WH_WA",
+                    "EURONEXT_MILLING_WHEAT": "DEMO_SILO_EU"}
 STALE_MARK = ("ICE_COFFEE_C", 1)      # (commodity, month index) published 60h ago
 MISSING_MARK = ("ICE_LDN_COCOA", 2)   # no mark published
 
@@ -195,6 +198,8 @@ def build(now: datetime) -> dict:
             strike=round(level * extra["strike_mult"], 2) if "strike_mult" in extra else None,
             source=extra.get("source", "BROKER_FEED_SIMULATED" if exchange else "MANUAL"),
             notes="Synthetic demo trade.", status=status, version=1,
+            strategy="" if extra.get("source") == "IMPORT" else refdata.PORTFOLIO_STRATEGY.get(pf, ""),
+            delivery_location=FORWARD_LOCATION.get(c, "") if inst == "FORWARD" else "",
             created_by=created_by, created_at=created_at, updated_by=created_by, updated_at=created_at,
         ).to_dict()
         audit.append(make_event(created_by, "TRADE_CREATED", "trade", tid, "Seeded synthetic demo trade",
@@ -223,7 +228,8 @@ def build(now: datetime) -> dict:
               for i, (d, k, m, v) in enumerate(_LIMITS, start=1)]
 
     return {"trades": trades, "prices": prices, "limits": limits,
-            "confirmations": confirmations, "audit": audit}
+            "confirmations": confirmations, "audit": audit,
+            "reference": refdata.default_records(now.replace(microsecond=0).isoformat())}
 
 
 if __name__ == "__main__":  # quick look at the generated set

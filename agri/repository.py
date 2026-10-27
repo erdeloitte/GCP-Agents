@@ -46,6 +46,11 @@ class Repository(ABC):
     def append_audit(self, event: dict) -> None: ...
     @abstractmethod
     def list_audit(self) -> list[dict]: ...
+    @abstractmethod
+    def list_reference(self) -> list[dict]: ...
+    @abstractmethod
+    def save_reference(self, record: dict) -> None:
+        """Insert or replace a reference record; record["deleted"] removes it."""
 
 
 class InMemoryRepository(Repository):
@@ -64,6 +69,7 @@ class InMemoryRepository(Repository):
             self._confirmations = {c["execution_ref"]: c for c in data["confirmations"]}
             self._actions: dict[str, list] = {}
             self._audit = sorted(data["audit"], key=lambda e: e["timestamp"])
+            self._reference = {(r["kind"], r["code"]): r for r in data["reference"]}
             self._seq = len(self._trades)
             self.seeded_at = now
 
@@ -121,6 +127,18 @@ class InMemoryRepository(Repository):
     def list_audit(self):
         with self._lock:
             return copy.deepcopy(self._audit)
+
+    def list_reference(self):
+        with self._lock:
+            return copy.deepcopy(list(self._reference.values()))
+
+    def save_reference(self, record):
+        with self._lock:
+            key = (record["kind"], record["code"])
+            if record.get("deleted"):
+                self._reference.pop(key, None)
+            else:
+                self._reference[key] = copy.deepcopy({k: v for k, v in record.items() if k != "deleted"})
 
     def describe(self) -> dict:
         return {"store": "in-memory", "persistent": False,

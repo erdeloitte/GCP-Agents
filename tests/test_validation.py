@@ -14,7 +14,7 @@ def form(**overrides) -> dict:
         "quantity": "10000", "contract_month": "2026-12", "pricing_type": "FIXED",
         "price": "445.25", "trade_date": "2026-06-15", "effective_date": "",
         "maturity_date": "2026-12-14", "broker": "Demo Broker Alpha", "execution_ref": "EX-9",
-        "source": "", "notes": "",
+        "source": "", "notes": "", "strategy": "ORIG_HEDGE",
     }
     d.update(overrides)
     return d
@@ -44,7 +44,7 @@ def test_required_fields(field):
 
 
 def test_unknown_counterparty_rejected():
-    assert "approved" in errors(counterparty="Real Company Inc")["counterparty"]
+    assert "Data Setup" in errors(counterparty="Real Company Inc")["counterparty"]
 
 
 def test_quantity_must_be_positive_and_numeric():
@@ -115,3 +115,30 @@ def test_price_band_is_warning_not_error():
 
 def test_text_length_limits():
     assert "notes" in errors(notes="x" * 1001)
+
+
+# ── Data Setup lookups ──────────────────────────────────────────────────────
+
+def test_inactive_or_unknown_reference_values_rejected():
+    from agri import refdata
+    lk = refdata.default_lookups()
+    lk["counterparty"] = lk["counterparty"] - {"Demo Clearing Member A"}
+    assert "Data Setup" in validate_trade(form(), TODAY, lookups=lk).errors["counterparty"]
+    assert "strategy" in errors(strategy="CAL_SPREAD")          # seeded as INACTIVE
+    assert "broker" in errors(broker="Unknown Broker")
+    lk = refdata.default_lookups()
+    lk["commodity"] = set()
+    assert "inactive" in validate_trade(form(), TODAY, lookups=lk).errors["commodity"]
+
+
+def test_strategy_optional_with_warning():
+    r = validate_trade(form(strategy=""), TODAY)
+    assert r.ok and any("strategy" in w for w in r.warnings)
+
+
+def test_delivery_location_forwards_only():
+    assert errors(delivery_location="DEMO_PORT_NS")["delivery_location"].startswith("Delivery location applies")
+    fwd = form(instrument_type="FORWARD", broker="", execution_ref="", maturity_date="2026-12-31")
+    assert validate_trade({**fwd, "delivery_location": "DEMO_PORT_NS"}, TODAY).ok
+    assert "delivery_location" in validate_trade({**fwd, "delivery_location": "NOWHERE"}, TODAY).errors
+    assert any("delivery location" in w for w in validate_trade(fwd, TODAY).warnings)

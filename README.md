@@ -17,17 +17,35 @@ AI status and the demo identity.
 
 | Screen | What it shows |
 |--------|---------------|
-| Dashboard | Summary line, positions by commodity (long / short / net t, notional, MtM, valuation coverage, limit status), exposure by maturity, items requiring attention, market-input freshness, limit utilisation, upcoming maturities |
+| Dashboard | "Needs attention" worklist (limit breaches, critical exceptions, pending reviews, stale inputs, data quality, near maturities, trades on inactive reference data, unassigned strategy) with a link to act on each; open book and data status; recent activity; exposure by commodity and by strategy |
 | Trade blotter / Capture | Sortable, filterable list; validated create / amend / cancel with a live trade ticket, reason and confirmation |
 | Trade detail | Terms, valuation with formula, inputs and assumptions, exceptions, simulated broker confirmation, audit history, review actions |
 | Monitoring | Monitoring items by category (maturities, missing data, market inputs, unmatched, valuation, reviews, limits) and a 60-day maturity calendar |
-| Exposure & risk | Exposure by commodity / maturity / portfolio / counterparty, configured limits, and a derivation drawer listing contributing trades and marks |
+| Exposure & risk | Exposure by commodity / strategy / maturity / portfolio / counterparty, configured limits, and a derivation drawer listing contributing trades and marks |
 | Exceptions | Acknowledge / override (Risk role, reason required, audited) and trade review |
 | Audit trail | Every change with timestamp, demo user, before/after and reason, including AI requests |
+| Data Setup | Reference data: commodities, strategies, units of measure, delivery locations, counterparties, portfolios, brokers, price sources — with usage counts, status, search and filters |
 | System & AI | Boundaries, AI provider status and connection test, data-handling policy, persistence statement |
 
 The portfolio selector scopes the dashboard, blotter and monitoring; limits and
 the Exposure & risk page are always firm-wide.
+
+### Data Setup rules
+
+| Type | Create | Edit | Deactivate | Delete |
+|------|--------|------|------------|--------|
+| Strategies, delivery locations, counterparties, portfolios, brokers | Yes | Yes (names of counterparties, portfolios and brokers are stored on trades, so they are fixed) | Yes | Only when no trade or limit uses it |
+| Commodities | No | Category, description | Yes | No |
+| Units of measure, price sources | No | No | No | No |
+
+Units and price sources are read-only because conversion factors and the
+synthetic feed drive deterministic figures.
+
+- Changes need the **Demo Risk Reviewer** identity and a reason (except create), and are written to the audit trail with before/after values.
+- An inactive record cannot be chosen for new trades or switched to in an amendment; existing trades keep it (amendments show a warning) and the dashboard flags open trades that use one.
+- Deleting a record that is in use is refused with the list of dependent trades and limits, and *Deactivate instead* is offered.
+- Trades now carry an optional **strategy** and, for forwards, a **delivery location**.
+- All seed records are synthetic demo data.
 
 ### Calculation and AI boundaries
 
@@ -75,7 +93,9 @@ AI page and in the explanation dialog. Keys are never logged or displayed.
 With `AGRI_STORE=bigquery` the app creates and uses these tables in
 `BQ_DATASET`: `agri_trades`, `agri_limits`, `agri_confirmations`,
 `agri_exception_actions`, `agri_audit_events`, `agri_market_prices`,
-`agri_meta`. They are **append-only**: each save adds a row, the latest row
+`agri_reference_data`, `agri_meta`. New columns are added to existing tables
+automatically at start-up, and an existing data set receives the Data Setup
+seed records once. They are **append-only**: each save adds a row, the latest row
 per trade/limit is current, and *Reset demo data* starts a new `generation`
 instead of deleting anything. To see current trades in the BigQuery console:
 

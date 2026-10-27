@@ -16,6 +16,7 @@ TRADE_EDITABLE_FIELDS = [
     "strike", "direction", "quantity", "contract_month", "pricing_type",
     "reference_market", "price", "trade_date", "effective_date",
     "maturity_date", "broker", "execution_ref", "source", "notes",
+    "strategy", "delivery_location",
 ]
 
 
@@ -44,6 +45,8 @@ class Trade:
     strike: float | None = None
     source: str = "MANUAL"
     notes: str = ""
+    strategy: str = ""              # Data Setup strategy code (optional)
+    delivery_location: str = ""     # Data Setup location code (forwards only)
     status: str = "PENDING_REVIEW"
     version: int = 1
     created_by: str = ""

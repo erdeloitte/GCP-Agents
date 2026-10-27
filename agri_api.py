@@ -116,7 +116,22 @@ def session_info():
 
 @agri_bp.get("/reference")
 def reference_data():
-    return jsonify({**ref.reference_payload(), "persistence": get_service().repo.describe()})
+    repo = get_service().repo
+    payload = ref.reference_payload()
+    records = repo.list_reference()
+    active = lambda kind: sorted(r["code"] for r in records if r["kind"] == kind and r["status"] == "ACTIVE")  # noqa: E731
+    payload.update(
+        counterparties=active("counterparty"), portfolios=active("portfolio"), brokers=active("broker"),
+        all_portfolios=sorted(r["code"] for r in records if r["kind"] == "portfolio"),
+        strategies=[{"code": r["code"], "name": r["name"], "status": r["status"]}
+                    for r in records if r["kind"] == "strategy"],
+        locations=[{"code": r["code"], "name": r["name"], "status": r["status"]}
+                   for r in records if r["kind"] == "location"],
+        persistence=repo.describe())
+    for r in records:
+        if r["kind"] == "commodity" and r["code"] in payload["commodities"]:
+            payload["commodities"][r["code"]].update(category=r["attrs"].get("category", ""), status=r["status"])
+    return jsonify(payload)
 
 
 @agri_bp.get("/dashboard")
@@ -126,7 +141,8 @@ def dashboard():
 
 @agri_bp.get("/trades")
 def list_trades():
-    keys = ("q", "commodity", "status", "portfolio", "instrument_type", "direction", "counterparty")
+    keys = ("q", "commodity", "status", "portfolio", "instrument_type", "direction", "counterparty",
+            "strategy", "delivery_location", "broker")
     filters = {k: (request.args.get(k) or "")[:120] for k in keys}
     return jsonify(get_service().list_trades(filters))
 
@@ -178,7 +194,8 @@ def audit():
 @agri_bp.post("/trades/validate")
 def validate_preview():
     body = _body()
-    return jsonify(get_service().preview_validation(body.get("trade") or {}, is_new=not body.get("id")))
+    tid = str(body.get("id") or "")[:40] or None
+    return jsonify(get_service().preview_validation(body.get("trade") or {}, is_new=not tid, trade_id=tid))
 
 
 @agri_bp.post("/trades")
@@ -220,6 +237,29 @@ def exception_action(exc_id):
 def update_limit(limit_id):
     body = _body()
     return jsonify({"limit": get_service().update_limit(limit_id, _user(), body, body.get("reason"))})
+
+
+@agri_bp.get("/refdata")
+def refdata_list():
+    return jsonify(get_service().reference_data())
+
+
+@agri_bp.post("/refdata/<kind>")
+def refdata_create(kind):
+    return jsonify({"record": get_service().create_reference(kind, _body(), _user())}), 201
+
+
+@agri_bp.put("/refdata/<kind>/<path:code>")
+def refdata_update(kind, code):
+    body = _body()
+    return jsonify({"record": get_service().update_reference(kind, code, body, _user(), body.get("reason"))})
+
+
+@agri_bp.post("/refdata/<kind>/<path:code>/delete")
+def refdata_delete(kind, code):
+    body = _body()
+    get_service().delete_reference(kind, code, _user(), body.get("reason"))
+    return jsonify({"deleted": True})
 
 
 @agri_bp.post("/demo/reset")

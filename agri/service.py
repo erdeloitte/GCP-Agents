@@ -11,10 +11,14 @@ Controls enforced here:
 from datetime import datetime, timezone
 
 from agri import reference as ref
+from agri import refdata
 from agri import risk
 from agri.audit import make_event
 from agri.models import ExceptionAction, TRADE_EDITABLE_FIELDS, Trade, utc_now_iso
 from agri.monitoring import RULES, SEVERITY_ORDER, detect_exceptions, price_key
+
+REF_LINK_FIELDS = {k: m["trade_field"] for k, m in refdata.KINDS.items() if m.get("trade_field")}
+DATA_QUALITY_RULES = {"MISSING_DATA", "UNCONFIRMED", "CONFIRM_MISMATCH", "PRICE_OUT_OF_BAND"}
 from agri.repository import InMemoryRepository, Repository
 from agri.validation import validate_trade
 from agri.valuation import DEFAULT_STALE_HOURS, INCLUDED_STATUSES, value_trade
@@ -101,7 +105,7 @@ class AgriService:
     def dashboard(self, portfolio: str | None = None, maturity_days: int = 30) -> dict:
         """Portfolio overview. `portfolio` scopes trades, positions and trade
         exceptions; limits are always evaluated firm-wide."""
-        if portfolio and portfolio not in ref.PORTFOLIOS:
+        if portfolio and portfolio not in {r["code"] for r in self.repo.list_reference() if r["kind"] == "portfolio"}:
             raise ServiceError("Unknown portfolio.", status=400)
         s = self.snapshot()
         now, today = s["now"], s["today"]
@@ -122,9 +126,35 @@ class AgriService:
                 maturities.append({k: t[k] for k in ("id", "commodity", "instrument_type", "direction",
                                                      "quantity", "quantity_unit", "contract_month",
                                                      "maturity_date", "status")} | {"days": days})
+        freshness = {
+            "marks_in_use": len(used_pks),
+            "missing_marks": len(used_pks) - len(used_prices),
+            "stale_marks": sum(1 for p in used_prices
+                               if (now - datetime.fromisoformat(p["as_of"])).total_seconds()
+                               > self.stale_hours * 3600),
+            "oldest_mark": as_ofs[0] if as_ofs else None,
+            "newest_mark": as_ofs[-1] if as_ofs else None,
+            "stale_threshold_hours": self.stale_hours,
+            "source": "SYNTHETIC DEMO DATA",
+        }
+        reference = self.repo.list_reference()
+        inactive = {(REF_LINK_FIELDS[r["kind"]], r["code"]) for r in reference
+                    if r["kind"] in REF_LINK_FIELDS and r["status"] != refdata.ACTIVE}
+        on_inactive = [t["id"] for t in open_trades
+                       if any((f, t.get(f)) in inactive for f in REF_LINK_FIELDS.values())]
+        names = {(r["kind"], r["code"]): r["name"] for r in reference}
+        by_strategy = []
+        for a in risk.aggregate(open_trades, s["valuations"], "strategy", today).values():
+            by_strategy.append({**a, "name": names.get(("strategy", a["key"]), a["key"])})
+        by_strategy.sort(key=lambda a: -a["gross_notional_usd"])
         return {
             "valued_at": now.replace(microsecond=0).isoformat(),
             "scope": {"portfolio": portfolio or None, "limits": "firm-wide"},
+            "attention": self._attention(s, trades, open_trades, open_exc, freshness, on_inactive, today),
+            "recent_activity": self._recent_activity(s, ids if portfolio else None),
+            "by_strategy": by_strategy,
+            "data_status": {"store": self.repo.describe(), "inactive_reference_in_use": len(on_inactive),
+                            "reference_records": len(reference)},
             "kpis": {
                 "open_trades": len(open_vals),
                 "pending_review": sum(1 for t in trades if t["status"] == "PENDING_REVIEW"),
@@ -148,18 +178,62 @@ class AgriService:
                                        for sev in SEVERITY_ORDER},
             "maturities": sorted(maturities, key=lambda m: (m["days"], m["id"])),
             "maturity_window_days": maturity_days,
-            "freshness": {
-                "marks_in_use": len(used_pks),
-                "missing_marks": len(used_pks) - len(used_prices),
-                "stale_marks": sum(1 for p in used_prices
-                                   if (now - datetime.fromisoformat(p["as_of"])).total_seconds()
-                                   > self.stale_hours * 3600),
-                "oldest_mark": as_ofs[0] if as_ofs else None,
-                "newest_mark": as_ofs[-1] if as_ofs else None,
-                "stale_threshold_hours": self.stale_hours,
-                "source": "SYNTHETIC DEMO DATA",
-            },
+            "freshness": freshness,
         }
+
+    @staticmethod
+    def _attention(s, trades, open_trades, open_exc, freshness, on_inactive, today) -> list[dict]:
+        """Deterministic worklist: what needs attention and where to go next."""
+        def n_rules(rules):
+            return sum(1 for e in open_exc if e["rule"] in rules)
+        breaches = sum(1 for l in s["limits"] if l["status"] == "BREACH")
+        warns = sum(1 for l in s["limits"] if l["status"] == "WARN")
+        crit = [e for e in open_exc if e["severity"] in ("CRITICAL", "HIGH") and not e["rule"].startswith("LIMIT")]
+        due = sum(1 for t in open_trades
+                  if (datetime.fromisoformat(t["maturity_date"]).date() - today).days <= 7)
+        inputs = freshness["stale_marks"] + freshness["missing_marks"]
+        items = [
+            ("limit_breach", "Limit breaches", breaches, "critical",
+             "Exposure above a configured limit (firm-wide).", "#/risk", "Review limits"),
+            ("exceptions", "Critical and high exceptions", len(crit),
+             "critical" if any(e["severity"] == "CRITICAL" for e in crit) else "high",
+             "Valuation, maturity and data exceptions needing a decision.", "#/exceptions", "Open queue"),
+            ("pending_review", "Trades awaiting review", sum(1 for t in trades if t["status"] == "PENDING_REVIEW"),
+             "action", "Four-eyes approval by the Risk role.", "#/blotter?status=PENDING_REVIEW", "Review trades"),
+            ("market_inputs", "Stale or missing market inputs", inputs, "warning",
+             "Dependent trades are excluded from MtM totals until resolved or overridden.",
+             "#/market-data", "View marks"),
+            ("data_quality", "Data-quality issues", n_rules(DATA_QUALITY_RULES), "warning",
+             "Missing execution details, unmatched confirmations, off-market prices.", "#/monitoring", "Monitoring"),
+            ("limit_warning", "Limits near threshold", warns, "warning",
+             "Utilisation above the warning level.", "#/risk", "Review limits"),
+            ("maturing", "Maturing within 7 days", due, "action",
+             "Open trades to close out, roll or deliver.", "#/monitoring", "Maturity calendar"),
+            ("inactive_reference", "Open trades on inactive reference data", len(on_inactive), "warning",
+             "Trades reference a deactivated commodity, strategy, counterparty or other record.",
+             "#/data-setup", "Data Setup"),
+            ("unassigned", "Open trades without a strategy",
+             sum(1 for t in open_trades if not t.get("strategy")), "info",
+             "Shown as 'Unassigned' in exposure by strategy.", "#/blotter?strategy=UNASSIGNED", "View trades"),
+        ]
+        return [{"key": k, "label": lbl, "count": n, "severity": sev if n else "clear", "detail": d,
+                 "href": href, "action": act} for k, lbl, n, sev, d, href, act in items]
+
+    def _recent_activity(self, s, scope_ids: set | None, limit: int = 10) -> list[dict]:
+        trades = {t["id"]: t for t in s["trades"]}
+        out = []
+        for e in reversed(self.repo.list_audit()):
+            if e["entity_type"] == "trade" and scope_ids is not None and e["entity_id"] not in scope_ids:
+                continue
+            row = {k: e[k] for k in ("timestamp", "actor", "action", "entity_type", "entity_id", "reason")}
+            t = trades.get(e["entity_id"]) if e["entity_type"] == "trade" else None
+            if t:
+                row["summary"] = {k: t[k] for k in ("direction", "quantity", "quantity_unit", "commodity",
+                                                     "instrument_type", "contract_month", "status")}
+            out.append(row)
+            if len(out) == limit:
+                break
+        return out
 
     def list_trades(self, filters: dict | None = None) -> list[dict]:
         s = self.snapshot()
@@ -171,12 +245,15 @@ class AgriService:
                 exc_count[e["trade_id"]] = exc_count.get(e["trade_id"], 0) + 1
         out = []
         for t in s["trades"]:
-            if any(str(t.get(k, "")).upper() != str(v).upper() for k, v in f.items()
-                   if k in ("commodity", "status", "portfolio", "instrument_type", "direction", "counterparty")):
+            if any(str(t.get(k) or "").upper() != ("" if v == "UNASSIGNED" else str(v).upper())
+                   for k, v in f.items()
+                   if k in ("commodity", "status", "portfolio", "instrument_type", "direction", "counterparty",
+                            "strategy", "delivery_location", "broker")):
                 continue
             if q and q not in " ".join(str(t.get(k, "")) for k in
                                        ("id", "counterparty", "portfolio", "commodity", "execution_ref",
-                                        "reference_market", "notes", "broker")).lower():
+                                        "reference_market", "notes", "broker", "strategy",
+                                        "delivery_location")).lower():
                 continue
             v = s["valuations"][t["id"]]
             out.append({**t, "valuation": {k: v[k] for k in
@@ -236,12 +313,31 @@ class AgriService:
                                             str(data.get("contract_month", ""))))
         return p["price"] if p else None
 
-    def preview_validation(self, data: dict, is_new: bool = True) -> dict:
-        r = validate_trade(data, self.clock().date(), self._mark_for(data), is_new=is_new)
-        return {"ok": r.ok, "errors": r.errors, "warnings": r.warnings}
+    def _lookups(self, before: dict | None, data: dict) -> tuple[dict, list]:
+        """Active Data Setup codes; an amendment may keep a value that has since been
+        deactivated (with a warning) but may not switch to an inactive one."""
+        lk = refdata.lookups(self.repo.list_reference())
+        warnings = []
+        if before:
+            for f in lk:
+                v = data.get(f, before.get(f))
+                if v and v == before.get(f) and v not in lk[f]:
+                    lk[f].add(v)
+                    warnings.append(f"{f.replace('_', ' ').capitalize()} '{v}' is inactive in Data Setup; "
+                                    "kept from the existing trade.")
+        return lk, warnings
+
+    def preview_validation(self, data: dict, is_new: bool = True, trade_id: str | None = None) -> dict:
+        before = self.repo.get_trade(trade_id) if trade_id else None
+        if before:
+            data = {**{k: before.get(k) for k in TRADE_EDITABLE_FIELDS}, **data}
+        lk, extra = self._lookups(before, data)
+        r = validate_trade(data, self.clock().date(), self._mark_for(data), is_new=is_new, lookups=lk)
+        return {"ok": r.ok, "errors": r.errors, "warnings": extra + r.warnings}
 
     def create_trade(self, data: dict, user: str) -> tuple[dict, list]:
-        r = validate_trade(data, self.clock().date(), self._mark_for(data), is_new=True)
+        lk, _ = self._lookups(None, data)
+        r = validate_trade(data, self.clock().date(), self._mark_for(data), is_new=True, lookups=lk)
         if not r.ok:
             raise ServiceError("Trade failed validation.", status=422, errors=r.errors, warnings=r.warnings)
         now = utc_now_iso()
@@ -264,7 +360,9 @@ class AgriService:
         reason = _require_reason(reason)
         merged = {k: before.get(k) for k in TRADE_EDITABLE_FIELDS}
         merged.update({k: v for k, v in data.items() if k in TRADE_EDITABLE_FIELDS})
-        r = validate_trade(merged, self.clock().date(), self._mark_for(merged), is_new=False)
+        lk, kept = self._lookups(before, merged)
+        r = validate_trade(merged, self.clock().date(), self._mark_for(merged), is_new=False, lookups=lk)
+        r.warnings = kept + r.warnings
         if not r.ok:
             raise ServiceError("Amendment failed validation.", status=422, errors=r.errors, warnings=r.warnings)
         after = {**before, **{k: r.clean[k] for k in TRADE_EDITABLE_FIELDS},
@@ -374,6 +472,101 @@ class AgriService:
         self.repo.append_audit(make_event(user, "LIMIT_CHANGED", "limit", limit_id, reason,
                                           before=before, after=after))
         return after
+
+    # ── Data Setup (reference data) ─────────────────────────────────────────
+    def _usage(self, kind: str, code: str, trades: list, limits: list) -> dict:
+        meta = refdata.KINDS[kind]
+        if kind == "unit":
+            commodities = {k for k, sp in ref.COMMODITIES.items() if sp["tonnes_key"] == code}
+            linked = [t for t in trades if t["commodity"] in commodities]
+        elif meta.get("trade_field"):
+            linked = [t for t in trades if t.get(meta["trade_field"]) == code]
+        else:
+            linked = []
+        lims = [l["id"] for l in limits if meta.get("limit_dimension") == l["dimension"] and l["key"] == code]
+        if kind == "commodity":
+            lims = [l["id"] for l in limits if l["dimension"] == "commodity" and l["key"] == code]
+        return {"trades": len(linked), "open_trades": sum(1 for t in linked if t["status"] in ref.RISK_STATUSES),
+                "trade_ids": [t["id"] for t in linked][:50], "limits": lims}
+
+    def reference_data(self) -> dict:
+        trades, limits = self.repo.list_trades(), self.repo.list_limits()
+        records = self.repo.list_reference() + refdata.derived_records(self.stale_hours)
+        by_kind = {k: [] for k in refdata.ORDER}
+        for r in records:
+            if r["kind"] not in by_kind:
+                continue
+            row = {**r, "usage": self._usage(r["kind"], r["code"], trades, limits)}
+            if r["kind"] == "commodity":
+                row["spec"] = {k: v for k, v in ref.COMMODITIES[r["code"]].items()
+                               if k in ("exchange", "code", "lot_size", "qty_unit", "price_unit", "currency",
+                                        "listed_months", "price_band_pct")}
+            by_kind[r["kind"]].append(row)
+        for rows in by_kind.values():
+            rows.sort(key=lambda r: (r["status"] != refdata.ACTIVE, r["name"].lower()))
+        kinds = [{"kind": k, **{f: v for f, v in refdata.KINDS[k].items()}} for k in refdata.ORDER]
+        return {"kinds": kinds, "records": by_kind, "persistence": self.repo.describe()}
+
+    def _get_reference(self, kind: str, code: str) -> dict:
+        if kind not in refdata.KINDS:
+            raise ServiceError("Unknown reference data type.", status=404)
+        rec = next((r for r in self.repo.list_reference() if r["kind"] == kind and r["code"] == code), None)
+        if not rec:
+            raise ServiceError(f"{refdata.KINDS[kind]['singular'].capitalize()} '{code}' not found.", status=404)
+        return rec
+
+    def create_reference(self, kind: str, data: dict, user: str) -> dict:
+        _require_role(user, "RISK", "Data Setup changes")
+        taken = {r["code"] for r in self.repo.list_reference() if r["kind"] == kind}
+        clean, errors = refdata.validate(kind, data, None, taken)
+        if errors:
+            raise ServiceError("Record failed validation.", status=422, errors=errors)
+        rec = {"kind": kind, "code": clean["code"], "name": clean.get("name") or clean["code"],
+               "status": clean["status"], "description": clean.get("description", ""), "attrs": clean["attrs"],
+               "system": False, "updated_by": user, "updated_at": utc_now_iso()}
+        self.repo.save_reference(rec)
+        self.repo.append_audit(make_event(user, "REFERENCE_CREATED", "reference", f"{kind}:{rec['code']}",
+                                          (data.get("reason") or "").strip() or "Created in Data Setup",
+                                          before={}, after=rec))
+        return rec
+
+    def update_reference(self, kind: str, code: str, data: dict, user: str, reason: str | None) -> dict:
+        _require_role(user, "RISK", "Data Setup changes")
+        before = self._get_reference(kind, code)
+        reason = _require_reason(reason)
+        clean, errors = refdata.validate(kind, data, before, set())
+        if errors:
+            raise ServiceError("Record failed validation.", status=422, errors=errors)
+        after = {**before, "name": clean.get("name", before["name"]),
+                 "description": clean.get("description", before.get("description", "")),
+                 "status": clean["status"], "attrs": clean["attrs"]}
+        if all(after[k] == before[k] for k in ("name", "description", "status", "attrs")):
+            raise ServiceError("No changes to save.", status=409)
+        after.update(updated_by=user, updated_at=utc_now_iso())
+        self.repo.save_reference(after)
+        action = ("REFERENCE_DEACTIVATED" if after["status"] == refdata.INACTIVE else "REFERENCE_ACTIVATED") \
+            if after["status"] != before["status"] else "REFERENCE_UPDATED"
+        self.repo.append_audit(make_event(user, action, "reference", f"{kind}:{code}", reason,
+                                          before=before, after=after))
+        return after
+
+    def delete_reference(self, kind: str, code: str, user: str, reason: str | None) -> None:
+        _require_role(user, "RISK", "Data Setup changes")
+        before = self._get_reference(kind, code)
+        reason = _require_reason(reason)
+        meta = refdata.KINDS[kind]
+        if not meta["deletable"] or before.get("system"):
+            raise ServiceError(f"{meta['label']} cannot be deleted; deactivate instead.", status=409)
+        u = self._usage(kind, code, self.repo.list_trades(), self.repo.list_limits())
+        if u["trades"] or u["limits"]:
+            parts = [f"{u['trades']} trade(s)"] if u["trades"] else []
+            parts += [f"{len(u['limits'])} limit(s)"] if u["limits"] else []
+            raise ServiceError(f"'{before['name']}' is used by {' and '.join(parts)} and cannot be deleted. "
+                               "Deactivate it instead: existing trades keep it, new trades cannot use it.",
+                               status=409, errors={"dependencies": ", ".join(u["trade_ids"][:10] + u["limits"])})
+        self.repo.save_reference({**before, "deleted": True, "updated_by": user, "updated_at": utc_now_iso()})
+        self.repo.append_audit(make_event(user, "REFERENCE_DELETED", "reference", f"{kind}:{code}", reason,
+                                          before=before, after={}))
 
     def log_ai_request(self, user: str, topic: str, entity_id: str, provider: str | None,
                        fields_sent: list) -> None:

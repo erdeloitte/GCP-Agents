@@ -16,7 +16,7 @@ def new_trade_form(service):
         "commodity": "CBOT_CORN", "instrument_type": "FUTURE", "direction": "BUY",
         "quantity": "5000", "contract_month": m["contract_month"], "price": str(m["price"]),
         "trade_date": service.clock().date().isoformat(), "maturity_date": f"{y}-{mo:02d}-14",
-        "broker": "Demo Broker Alpha", "execution_ref": "EX-NEW-1",
+        "broker": "Demo Broker Alpha", "execution_ref": "EX-NEW-1", "strategy": "ORIG_HEDGE",
     }
 
 

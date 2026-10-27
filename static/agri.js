@@ -39,6 +39,9 @@
   };
   const hhmm = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? "—" : d.toISOString().slice(11, 16) + " UTC"; };
   const commodityName = (k) => (REF && REF.commodities[k] ? REF.commodities[k].name : k);
+  const strategyName = (c) => { if (!c || c === "Unassigned") return "Unassigned"; const s = REF && REF.strategies.find((x) => x.code === c); return s ? s.name : c; };
+  const locationName = (c) => { const l = REF && REF.locations.find((x) => x.code === c); return l ? l.name : c; };
+  const dimLabel = (dim, key) => (dim === "commodity" ? commodityName(key) : dim === "strategy" ? strategyName(key) : key);
   const label = (s) => String(s || "").replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
   const PROVIDER = { claude: "Claude (Anthropic)" };
 
@@ -217,7 +220,8 @@
 
   // ── Chrome: identity, scope, freshness, AI status, badge ─────────────────
   const SECTIONS = { dashboard: "Dashboard", blotter: "Trade blotter", trade: "Trade blotter", capture: "Capture trade", monitoring: "Monitoring",
-    risk: "Exposure & risk", exceptions: "Exceptions", audit: "Audit trail", "market-data": "Market data", system: "System & AI" };
+    risk: "Exposure & risk", exceptions: "Exceptions", audit: "Audit trail", "market-data": "Market data", system: "System & AI",
+    "data-setup": "Data Setup" };
 
   async function loadSession() {
     SESSION = await api("/session");
@@ -234,8 +238,8 @@
 
   function initScope() {
     const sel = $("#scope");
-    sel.innerHTML = `<option value="">All portfolios</option>` + REF.portfolios.map((p) => `<option ${p === SCOPE ? "selected" : ""}>${esc(p)}</option>`).join("");
-    if (SCOPE && !REF.portfolios.includes(SCOPE)) SCOPE = "";
+    sel.innerHTML = `<option value="">All portfolios</option>` + REF.all_portfolios.map((p) => `<option ${p === SCOPE ? "selected" : ""}>${esc(p)}</option>`).join("");
+    if (SCOPE && !REF.all_portfolios.includes(SCOPE)) SCOPE = "";
     sel.addEventListener("change", () => {
       SCOPE = sel.value;
       try { localStorage.setItem("agri.scope", SCOPE); } catch (err) { /* ignore */ }
@@ -286,7 +290,7 @@
       <span class="${cls}" style="width:${Math.min(100, l.utilisation * 100)}%"></span><span class="tick" style="left:${l.warn_pct * 100}%"></span></span>
       <span class="${l.status === "BREACH" ? "neg" : ""}">${pct(l.utilisation)}</span></span>`;
   }
-  const limitName = (l) => `${label(l.dimension)}: ${l.dimension === "commodity" ? commodityName(l.key) : l.key}`;
+  const limitName = (l) => `${label(l.dimension)}: ${dimLabel(l.dimension, l.key)}`;
   const tradeLink = (id) => `<a class="mono" href="#/trade/${encodeURIComponent(id)}">${esc(id)}</a>`;
 
   function entityLink(e) {
@@ -310,110 +314,122 @@
   }
 
   // ── Dashboard ─────────────────────────────────────────────────────────────
+  const WL = { critical: ["wl-critical", "Critical"], high: ["wl-high", "High"], warning: ["wl-warning", "Warning"],
+    action: ["wl-action", "To do"], info: ["wl-info", "Info"], clear: ["wl-clear", "Clear"] };
+  const WL_RANK = { critical: 0, high: 1, warning: 2, action: 3, info: 4, clear: 9 };
+  const EVENT = { TRADE_CREATED: "Trade captured", TRADE_AMENDED: "Trade amended", TRADE_APPROVED: "Trade approved",
+    TRADE_REJECTED: "Trade rejected", TRADE_CANCELLED: "Trade cancelled", EXCEPTION_ACKNOWLEDGED: "Exception acknowledged",
+    EXCEPTION_OVERRIDDEN: "Exception overridden", LIMIT_CHANGED: "Limit changed", REFERENCE_CREATED: "Reference data created",
+    REFERENCE_UPDATED: "Reference data updated", REFERENCE_DEACTIVATED: "Reference data deactivated",
+    REFERENCE_ACTIVATED: "Reference data activated", REFERENCE_DELETED: "Reference data deleted",
+    AI_EXPLANATION_REQUESTED: "AI explanation requested", DEMO_DATA_RESET: "Demo data reset" };
+  const entityHref = (type, id) => type === "trade" ? `#/trade/${encodeURIComponent(id)}` : type === "reference" ? `#/data-setup/${encodeURIComponent(id.split(":")[0])}`
+    : type === "limit" ? "#/risk" : type === "exception" ? "#/exceptions" : "";
+  const entityCell = (type, id) => { const h = entityHref(type, id); const txt = type === "reference" ? id.replace(":", " · ") : id; return h ? `<a class="mono" href="${h}">${esc(txt)}</a>` : `<span class="mono">${esc(txt)}</span>`; };
+  const tradeSummary = (t) => `${esc(t.direction)} ${num(t.quantity)} ${esc(t.quantity_unit)} ${esc(commodityName(t.commodity))} ${esc(label(t.instrument_type))} ${mon(t.contract_month)}`;
+
   async function viewDashboard() {
     main.innerHTML = loading();
     const d = await api("/dashboard" + (SCOPE ? `?portfolio=${encodeURIComponent(SCOPE)}` : ""));
-    const k = d.kpis, f = d.freshness;
+    const k = d.kpis, f = d.freshness, ds = d.data_status, store = ds.store;
+    const items = d.attention.slice().sort((a, b) => WL_RANK[a.severity] - WL_RANK[b.severity]);
+    const open = items.filter((i) => i.count);
     const commodityLimit = (c) => d.limits.filter((l) => l.dimension === "commodity" && l.key === c).sort((a, b) => b.utilisation - a.utilisation)[0];
-    const item = (dt_, dd) => `<div><dt>${dt_}</dt><dd>${dd}</dd></div>`;
+    const kv = (dt_, dd) => `<div><dt>${dt_}</dt><dd>${dd}</dd></div>`;
     main.innerHTML = `
-      <div class="page-head"><div><h1>Portfolio overview</h1>
-        <p>${esc(SCOPE || "All portfolios")} · valued ${ts(d.valued_at)} · USD ${DET} ${DEMO}</p></div>
-        <div class="page-actions"><a class="btn" href="#/exceptions">Exceptions queue</a><a class="btn" href="#/blotter">Trade blotter</a></div></div>
-      <dl class="summary" aria-label="Portfolio summary">
-        ${item("Open trades", `${num(k.open_trades)}${k.pending_review ? ` <span class="muted">· ${k.pending_review} pending review</span>` : ""}`)}
-        ${item("Unrealised MtM, USD", `<span class="${signCls(k.mtm_usd)}">${usd(k.mtm_usd)}</span>`)}
-        ${item("Valuation coverage", `${k.mtm_included} / ${k.open_trades} trades${k.mtm_excluded ? ` <span class="neg">· ${k.mtm_excluded} excluded</span>` : ""}`)}
-        ${item("Limits (firm-wide)", k.limit_breaches ? `<span class="neg">${k.limit_breaches} breach</span> · ${k.limit_warnings} warning` : `${k.limit_warnings} warning`)}
-        ${item("Open exceptions", `${k.open_exceptions}${k.critical_exceptions ? ` <span class="neg">· ${k.critical_exceptions} critical</span>` : ""}`)}
-        ${item("Market inputs", `${f.marks_in_use} marks${f.stale_marks || f.missing_marks ? ` <span class="neg">· ${f.stale_marks} stale · ${f.missing_marks} missing</span>` : " · all current"}`)}
-      </dl>
+      <div class="page-head"><div><h1>Overview</h1>
+        <p>${esc(SCOPE || "All portfolios")} · valued ${ts(d.valued_at)} ${DET} ${DEMO}</p></div>
+        <div class="page-actions"><a class="btn btn-primary" href="#/capture">Capture trade</a><a class="btn" href="#/exceptions">Exceptions queue</a><a class="btn" href="#/data-setup">Data Setup</a></div></div>
       <div class="cols cols-main">
+        <section class="panel" aria-labelledby="h-attn"><div class="panel-head"><h2 id="h-attn">Needs attention<span class="sub">${open.length ? `${open.length} of ${items.length} checks need action` : "all checks clear"}</span></h2></div>
+          <ul class="worklist">${items.map((i) => { const [cls, txt] = WL[i.severity]; return `<li class="${cls}">
+            <span class="wl-sev">${txt}</span><span class="wl-count">${i.count ? num(i.count) : "✓"}</span>
+            <span class="wl-main"><a class="wl-title" href="${i.href}">${esc(i.label)}</a><span class="wl-detail">${esc(i.detail)}</span></span>
+            ${i.count ? `<a class="btn btn-sm" href="${i.href}">${esc(i.action)}</a>` : "<span></span>"}</li>`; }).join("")}</ul>
+          <div class="panel-note">Checks are deterministic rules evaluated on every load. Limit checks are firm-wide; the rest follow the portfolio selector.</div></section>
         <div class="stack">
-          <section class="panel core" aria-labelledby="h-pos"><div class="panel-head"><h2 id="h-pos">Positions by commodity<span class="sub">delta-equivalent tonnes · select a row for derivation</span></h2>${DET}</div>
-            <div id="pos-grid"></div>
-            <div class="panel-note"><p>Notional and MtM include only trades with a current or explicitly accepted mark. Options: delta 1 if in-the-money, else 0.</p>${basis()}</div></section>
-          <section class="panel" aria-labelledby="h-mat"><div class="panel-head"><h2 id="h-mat">Exposure by maturity bucket</h2>${DET}</div><div id="bucket-grid"></div></section>
-        </div>
-        <div class="stack">
-          <section class="panel" aria-labelledby="h-attn"><div class="panel-head"><h2 id="h-attn">Requires attention</h2><a class="btn btn-sm" href="#/exceptions">Queue (${k.open_exceptions})</a></div>
-            ${d.exceptions.length ? `<ul class="attn">${d.exceptions.map((e) => `<li><span>${sevTag(e.severity)}</span><span class="what">${esc(e.title)} · ${entityLink(e)}</span><span class="detail" title="${esc(e.detail)}">${esc(e.detail)}</span></li>`).join("")}</ul>` : empty("No open exceptions — all monitoring rules pass.")}
-          </section>
-          <section class="panel" aria-labelledby="h-fresh"><div class="panel-head"><h2 id="h-fresh">Market inputs</h2>${DEMO}</div>
-            <div class="panel-body"><dl class="kv">
-              <div><dt>Marks in use</dt><dd>${f.marks_in_use}</dd></div>
-              <div><dt>Stale (&gt; ${f.stale_threshold_hours}h)</dt><dd class="${f.stale_marks ? "neg" : ""}">${f.stale_marks}</dd></div>
-              <div><dt>Missing</dt><dd class="${f.missing_marks ? "neg" : ""}">${f.missing_marks}</dd></div>
-              <div><dt>Oldest mark</dt><dd>${ts(f.oldest_mark)}</dd></div></dl></div>
-            <div class="panel-note">Trades on stale or missing marks are flagged and excluded from MtM totals. <a href="#/market-data">View marks</a></div></section>
+          <section class="panel" aria-labelledby="h-book"><div class="panel-head"><h2 id="h-book">Open book</h2>${DET}</div>
+            <div class="panel-body"><dl class="kv kv-rows">
+              ${kv("Open trades", `${num(k.open_trades)}${k.pending_review ? ` <span class="muted">· ${k.pending_review} pending review</span>` : ""}`)}
+              ${kv("Unrealised MtM (USD)", `<span class="${signCls(k.mtm_usd)}">${usd(k.mtm_usd)}</span> <span class="muted">· ${k.mtm_included} of ${k.open_trades} valued</span>`)}
+              ${kv("Gross notional (USD)", usd(k.gross_notional_usd))}
+              ${kv("Limits (firm-wide)", k.limit_breaches ? `<span class="neg">${k.limit_breaches} breach</span> · ${k.limit_warnings} warning` : `${k.limit_warnings} warning`)}</dl></div>
+            <div class="panel-note">${basis()}</div></section>
+          <section class="panel" aria-labelledby="h-ds"><div class="panel-head"><h2 id="h-ds">Data status</h2></div>
+            <div class="panel-body"><dl class="kv kv-rows">
+              ${kv("Storage", store.persistent ? `BigQuery <span class="mono muted">${esc(store.dataset)}</span>` : '<span class="warn-text">In memory — not saved</span>')}
+              ${kv("Market marks", `${f.marks_in_use} in use${f.stale_marks || f.missing_marks ? ` · <span class="warn-text">${f.stale_marks} stale, ${f.missing_marks} missing</span>` : " · all current"}`)}
+              ${kv("Oldest mark", ts(f.oldest_mark))}
+              ${kv("Reference data", `${ds.reference_records} records${ds.inactive_reference_in_use ? ` · <span class="warn-text">${ds.inactive_reference_in_use} open trades on inactive records</span>` : ""}`)}</dl></div>
+            <div class="panel-note"><a href="#/market-data">Market data</a> · <a href="#/data-setup">Data Setup</a> · <a href="#/system">System &amp; AI</a></div></section>
         </div>
       </div>
+      <section class="panel" aria-labelledby="h-act"><div class="panel-head"><h2 id="h-act">Recent activity</h2><a class="btn btn-sm" href="#/audit">Audit trail</a></div><div id="act-grid"></div></section>
       <div class="cols cols-2">
-        <section class="panel core" aria-labelledby="h-lim"><div class="panel-head"><h2 id="h-lim">Limit utilisation<span class="sub">firm-wide</span></h2><a class="btn btn-sm" href="#/risk">All limits</a></div><div id="lim-grid"></div></section>
-        <section class="panel" aria-labelledby="h-due"><div class="panel-head"><h2 id="h-due">Maturing within ${d.maturity_window_days} days</h2></div><div id="due-grid"></div></section>
+        <section class="panel core" aria-labelledby="h-pos"><div class="panel-head"><h2 id="h-pos">Exposure by commodity<span class="sub">delta-equivalent t</span></h2><a class="btn btn-sm" href="#/risk">Exposure &amp; risk</a></div><div id="pos-grid"></div></section>
+        <section class="panel core" aria-labelledby="h-str"><div class="panel-head"><h2 id="h-str">Exposure by strategy</h2><a class="btn btn-sm" href="#/data-setup/strategy">Strategies</a></div><div id="str-grid"></div></section>
       </div>`;
 
+    mountGrid($("#act-grid"), "dash-act", [
+      { key: "timestamp", label: "Time", cls: () => "nowrap", render: (e) => ts(e.timestamp) },
+      { key: "action", label: "Event", render: (e) => esc(EVENT[e.action] || label(e.action)) },
+      { key: "entity_id", label: "Record", render: (e) => entityCell(e.entity_type, e.entity_id) },
+      { key: "summary", label: "Detail", nosort: true, cls: () => "wrap", render: (e) => (e.summary ? `${tradeSummary(e.summary)} ${tradeTag(e.summary.status)}` : `<span class="muted">${esc(e.reason)}</span>`) },
+      { key: "actor", label: "By" },
+    ], d.recent_activity, { caption: "Recent activity", sortKey: "timestamp", sortDir: -1, empty: "No activity yet." });
+
     mountGrid($("#pos-grid"), "dash-pos", [
-      { key: "commodity", label: "Commodity", sort: (r) => commodityName(r.commodity), render: (r) => `<button class="btn-link" data-derive="commodity|${esc(r.commodity)}">${esc(commodityName(r.commodity))}</button><span class="sub">${esc(REF.commodities[r.commodity].exchange)} ${esc(REF.commodities[r.commodity].code)}</span>` },
-      { key: "contract_months", label: "Months", nosort: true, render: (r) => `${r.contract_months.length} <span class="sub">${mon(r.contract_months[0])}${r.contract_months.length > 1 ? `–${mon(r.contract_months[r.contract_months.length - 1])}` : ""}</span>` },
-      { key: "long_t", label: "Long t", num: true, render: (r) => tonnes(r.long_t) },
-      { key: "short_t", label: "Short t", num: true, render: (r) => tonnes(r.short_t) },
-      { key: "net_t", label: "Net t", num: true, render: (r) => `<strong>${tonnes(r.net_t)}</strong>` },
-      { key: "gross_notional_usd", label: "Notional USD", num: true, render: (r) => usd(r.gross_notional_usd) },
+      { key: "commodity", label: "Commodity", sort: (r) => commodityName(r.commodity), render: (r) => `<button class="btn-link" data-derive="commodity|${esc(r.commodity)}">${esc(commodityName(r.commodity))}</button>` },
+      { key: "net_t", label: "Net t", num: true, render: (r) => tonnes(r.net_t) },
       { key: "mtm_usd", label: "MtM USD", num: true, cls: (r) => signCls(r.mtm_usd), render: (r) => usd(r.mtm_usd) },
-      { key: "valued", label: "Valued", num: true, sort: (r) => r.valued / r.trades, render: (r) => `<span class="${r.data_complete ? "" : "neg"}">${r.valued} / ${r.trades}</span>` },
+      { key: "valued", label: "Valued", num: true, sort: (r) => r.valued / r.trades, render: (r) => `<span class="${r.data_complete ? "" : "warn-text"}">${r.valued}/${r.trades}</span>` },
       { key: "limit", label: "Limit", sort: (r) => (commodityLimit(r.commodity) || {}).utilisation ?? null, render: (r) => { const l = commodityLimit(r.commodity); return l ? `${limTag(l.status)} <span class="muted">${pct(l.utilisation)}</span>` : '<span class="muted">—</span>'; } },
-    ], d.positions, { caption: "Positions by commodity", empty: "No open positions in this scope.",
-      foot: d.positions.length ? `<tr><td colspan="5">Total · ${k.open_trades} open trades</td><td class="num">${usd(k.gross_notional_usd)}</td><td class="num ${signCls(k.mtm_usd)}">${usd(k.mtm_usd)}</td><td class="num">${k.mtm_included} / ${k.open_trades}</td><td></td></tr>` : "" });
+    ], d.positions, { caption: "Exposure by commodity", sortKey: "net_t", sortDir: -1, empty: "No open positions in this scope." });
 
-    mountGrid($("#bucket-grid"), "dash-bucket", [
-      { key: "key", label: "Bucket", nosort: true, render: (a) => `<button class="btn-link" data-derive="maturity_bucket|${esc(a.key)}">${esc(a.key)}</button>` },
-      { key: "net_tonnes", label: "Net t", num: true, nosort: true, render: (a) => tonnes(a.net_tonnes) },
-      { key: "gross_tonnes", label: "Gross t", num: true, nosort: true, render: (a) => tonnes(a.gross_tonnes) },
-      { key: "gross_notional_usd", label: "Notional USD", num: true, nosort: true, render: (a) => usd(a.gross_notional_usd) },
-      { key: "mtm_usd", label: "MtM USD", num: true, nosort: true, cls: (a) => signCls(a.mtm_usd), render: (a) => usd(a.mtm_usd) },
-      { key: "trades", label: "Trades", num: true, nosort: true, render: (a) => `${a.trade_ids.length}${a.data_complete ? "" : ` <span class="tag tag-warn" title="${a.incomplete.length} trade(s) without a usable mark">${a.incomplete.length} excl.</span>`}` },
-    ], d.by_maturity, { caption: "Exposure by maturity bucket", empty: "No open trades." });
-
-    mountGrid($("#lim-grid"), "dash-lim", [
-      { key: "name", label: "Limit", sort: limitName, render: (l) => `<button class="btn-link" data-derive="${esc(l.dimension)}|${esc(l.key)}">${esc(limitName(l))}</button><span class="sub">${esc(l.metric_label)}</span>` },
-      { key: "utilisation", label: "Utilisation", render: meter },
-      { key: "status", label: "Status", sort: (l) => ({ BREACH: 0, WARN: 1, OK: 2 }[l.status]), render: (l) => limTag(l.status) + (l.data_complete ? "" : ' <span class="tag tag-warn" title="Some contributing trades lack valid inputs">Incomplete</span>') },
-    ], d.limits, { caption: "Limit utilisation", sortKey: "utilisation", sortDir: -1 });
-
-    mountGrid($("#due-grid"), "dash-due", [
-      { key: "id", label: "Trade", render: (t) => tradeLink(t.id) },
-      { key: "commodity", label: "Commodity", sort: (t) => commodityName(t.commodity), render: (t) => `${esc(commodityName(t.commodity))}<span class="sub">${esc(label(t.instrument_type))} · ${esc(t.direction)}</span>` },
-      { key: "quantity", label: "Quantity", num: true, render: (t) => `${num(t.quantity)} ${esc(t.quantity_unit)}` },
-      { key: "maturity_date", label: "Maturity", render: (t) => dt(t.maturity_date) },
-      { key: "days", label: "Days", num: true, cls: (t) => (t.days < 0 ? "neg" : ""), render: (t) => t.days },
-      { key: "status", label: "Status", render: (t) => tradeTag(t.status) },
-    ], d.maturities, { caption: "Upcoming maturities", sortKey: "days", empty: `No open trades mature within ${d.maturity_window_days} days.` });
+    mountGrid($("#str-grid"), "dash-str", [
+      { key: "name", label: "Strategy", render: (a) => `<button class="btn-link" data-derive="strategy|${esc(a.key)}">${esc(a.name)}</button>` },
+      { key: "trades", label: "Trades", num: true, sort: (a) => a.trade_ids.length, render: (a) => a.trade_ids.length },
+      { key: "gross_notional_usd", label: "Notional USD", num: true, render: (a) => usd(a.gross_notional_usd) },
+      { key: "mtm_usd", label: "MtM USD", num: true, cls: (a) => signCls(a.mtm_usd), render: (a) => usd(a.mtm_usd) },
+      { key: "data", label: "Data", sort: (a) => a.incomplete.length, render: (a) => (a.data_complete ? '<span class="tag tag-ok">Complete</span>' : `<span class="tag tag-warn">${a.incomplete.length} excl.</span>`) },
+    ], d.by_strategy, { caption: "Exposure by strategy", sortKey: "gross_notional_usd", sortDir: -1, empty: "No open positions in this scope." });
   }
 
   // ── Blotter ───────────────────────────────────────────────────────────────
   const blotterState = { filters: {} };
-  async function viewBlotter() {
+  const LINK_FILTERS = { counterparty: "Counterparty", delivery_location: "Delivery location", broker: "Broker" };
+  async function viewBlotter(arg, params) {
+    if (params && [...params.keys()].length) {
+      blotterState.filters = { portfolio: SCOPE };
+      params.forEach((v, key) => { blotterState.filters[key] = v; });
+      history.replaceState(null, "", "#/blotter");
+    }
     if (blotterState.filters.portfolio === undefined) blotterState.filters.portfolio = SCOPE;
+    const fl = blotterState.filters;
     const opt = (name, values, lbl, fmt = (v) => v) => `<div class="field"><label for="f-${name}">${lbl}</label><select id="f-${name}" data-filter="${name}"><option value="">All</option>
-      ${values.map((v) => `<option value="${esc(v)}" ${blotterState.filters[name] === v ? "selected" : ""}>${esc(fmt(v))}</option>`).join("")}</select></div>`;
+      ${values.map((v) => `<option value="${esc(v)}" ${fl[name] === v ? "selected" : ""}>${esc(fmt(v))}</option>`).join("")}</select></div>`;
+    const linkChips = Object.keys(LINK_FILTERS).filter((k) => fl[k]).map((k) =>
+      `<button class="chip" aria-pressed="true" data-unfilter="${k}" title="Remove filter">${esc(LINK_FILTERS[k])}: ${esc(k === "delivery_location" ? locationName(fl[k]) : fl[k])} ✕</button>`).join("");
     main.innerHTML = `<div class="page-head"><div><h1>Trade blotter</h1><p>All captured trades with current valuation status ${DET} ${DEMO}</p></div>
       <div class="page-actions"><a class="btn btn-primary" href="#/capture">Capture trade</a></div></div>
       <section class="panel"><div class="filters" role="search">
-        <div class="field" style="flex:1 1 220px"><label for="f-q">Search</label><input id="f-q" type="search" placeholder="Trade ID, counterparty, execution ref…" value="${esc(blotterState.filters.q || "")}" data-filter="q"></div>
+        <div class="field" style="flex:1 1 220px"><label for="f-q">Search</label><input id="f-q" type="search" placeholder="Trade ID, counterparty, execution ref…" value="${esc(fl.q || "")}" data-filter="q"></div>
         ${opt("commodity", Object.keys(REF.commodities), "Commodity", commodityName)}
+        ${opt("strategy", ["UNASSIGNED", ...REF.strategies.map((x) => x.code)], "Strategy", strategyName)}
         ${opt("instrument_type", REF.instrument_types, "Instrument", label)}
         ${opt("direction", REF.directions, "Direction", label)}
         ${opt("status", REF.statuses, "Status", label)}
-        ${opt("portfolio", REF.portfolios, "Portfolio")}
+        ${opt("portfolio", REF.all_portfolios, "Portfolio")}
         <button class="btn" id="f-clear" type="button">Clear</button></div>
+        ${linkChips ? `<div class="chips">${linkChips}</div>` : ""}
         <div id="blotter-out">${loading()}</div>
         <div class="panel-note"><span id="blotter-count" aria-live="polite"></span>${basis()}</div></section>`;
     let timer;
     $$("[data-filter]").forEach((el) => el.addEventListener(el.tagName === "INPUT" ? "input" : "change", () => {
-      blotterState.filters[el.dataset.filter] = el.value;
+      fl[el.dataset.filter] = el.value;
       clearTimeout(timer); timer = setTimeout(loadBlotter, el.tagName === "INPUT" ? 250 : 0);
     }));
+    $$("[data-unfilter]").forEach((b) => b.addEventListener("click", () => { delete fl[b.dataset.unfilter]; viewBlotter(); }));
     $("#f-clear").addEventListener("click", () => { blotterState.filters = { portfolio: "" }; viewBlotter(); });
     await loadBlotter();
   }
@@ -428,7 +444,7 @@
       mountGrid(out, "blotter", [
         { key: "id", label: "Trade", render: (t) => `${tradeLink(t.id)}<span class="sub">v${t.version}</span>` },
         { key: "trade_date", label: "Trade date", cls: () => "nowrap", render: (t) => dt(t.trade_date) },
-        { key: "portfolio", label: "Portfolio" },
+        { key: "portfolio", label: "Portfolio", render: (t) => `${esc(t.portfolio)}<span class="sub">${esc(strategyName(t.strategy))}</span>` },
         { key: "counterparty", label: "Counterparty" },
         { key: "commodity", label: "Commodity", sort: (t) => commodityName(t.commodity), render: (t) => esc(commodityName(t.commodity)) },
         { key: "instrument_type", label: "Instrument", render: (t) => `${esc(label(t.instrument_type))}${t.option_type ? ` <span class="muted">${esc(t.option_type)} ${num(t.strike, 2)}</span>` : ""}` },
@@ -471,6 +487,8 @@
           ${kv(t.instrument_type === "OPTION" ? "Premium" : "Price", `${num(t.price, 2)} ${esc(t.price_unit)}`)}${kv("Currency", esc(t.currency))}
           ${kv("Trade / effective", `${dt(t.trade_date)} / ${dt(t.effective_date)}`)}${kv("Maturity / delivery", `${dt(t.maturity_date)} <span class="muted">(${esc(d.maturity_bucket)})</span>`)}
           ${kv("Broker", t.broker ? esc(t.broker) : missing)}${kv("Execution ref", t.execution_ref ? `<span class="mono">${esc(t.execution_ref)}</span>` : missing)}
+          ${kv("Strategy", t.strategy ? `<a href="#/blotter?strategy=${encodeURIComponent(t.strategy)}">${esc(strategyName(t.strategy))}</a>` : '<span class="muted">Unassigned</span>')}
+          ${t.instrument_type === "FORWARD" ? kv("Delivery location", t.delivery_location ? esc(locationName(t.delivery_location)) : '<span class="warn-text">Not set</span>') : ""}
           ${kv("Source", esc(label(t.source)))}${kv("Captured by", `${esc(t.created_by)} · ${ts(t.created_at)}`)}
         </dl>${t.notes ? `<p class="muted" style="margin:10px 0 0"><strong>Notes:</strong> ${esc(t.notes)}</p>` : ""}</div></section>
         <section class="panel core" aria-labelledby="h-val"><div class="panel-head"><h2 id="h-val">Valuation</h2><span>${valTag(v.status)} ${DET}</span></div>
@@ -546,6 +564,10 @@
     return iso(y, m, new Date(Date.UTC(y, m, 0)).getUTCDate());
   }
 
+  const activeCodes = (list) => list.filter((x) => x.status === "ACTIVE").map((x) => x.code);
+  /** Active options plus the record's current value (which may since have been deactivated). */
+  const withCurrent = (opts, cur) => (cur && !opts.includes(cur) ? [...opts, cur] : opts);
+
   async function viewCapture(id) {
     main.innerHTML = loading();
     const editing = Boolean(id);
@@ -572,8 +594,9 @@
       <div class="form-layout">
       <form id="trade-form" novalidate>
         <fieldset><legend>Parties</legend><div class="form-grid">
-          ${sel("counterparty", REF.counterparties, "Counterparty")}
-          ${sel("portfolio", REF.portfolios, "Portfolio / business unit")}</div></fieldset>
+          ${sel("counterparty", withCurrent(REF.counterparties, v.counterparty), "Counterparty")}
+          ${sel("portfolio", withCurrent(REF.portfolios, v.portfolio), "Portfolio / business unit")}
+          ${sel("strategy", withCurrent(activeCodes(REF.strategies), v.strategy), "Strategy", false, strategyName, "Optional — used for exposure by strategy")}</div></fieldset>
         <fieldset><legend>Product</legend><div class="form-grid">
           ${sel("commodity", Object.keys(REF.commodities), "Commodity", true, (k) => `${REF.commodities[k].name} (${REF.commodities[k].exchange} ${REF.commodities[k].code})`)}
           ${sel("instrument_type", REF.instrument_types, "Instrument type", true, label)}
@@ -592,9 +615,10 @@
           ${sel("contract_month", monthOptions(v.commodity, v.contract_month), "Contract / delivery month")}
           ${inp("trade_date", "Trade date", "date")}
           ${inp("effective_date", "Effective date", "date", true, "", "Defaults to trade date")}
-          ${inp("maturity_date", "Maturity / last trade / delivery", "date", true, "", "Suggested from instrument and month")}</div></fieldset>
+          ${inp("maturity_date", "Maturity / last trade / delivery", "date", true, "", "Suggested from instrument and month")}
+          ${sel("delivery_location", withCurrent(activeCodes(REF.locations), v.delivery_location), "Delivery location", false, locationName, "Forwards only")}</div></fieldset>
         <fieldset><legend>Execution &amp; source</legend><div class="form-grid">
-          ${sel("broker", REF.brokers, "Broker", false)}
+          ${sel("broker", withCurrent(REF.brokers, v.broker), "Broker", false)}
           ${inp("execution_ref", "Execution / broker reference", "text", false, 'maxlength="120"', "Required for exchange-traded trades")}
           ${sel("source", REF.sources, "Source", true, label)}
           <div class="field" data-field="notes" style="grid-column:1/-1"><label for="t-notes">Supporting notes</label><textarea id="t-notes" name="notes" rows="2" maxlength="1000" aria-describedby="e-notes">${esc(v.notes || "")}</textarea><span class="err" id="e-notes"></span></div></div></fieldset>
@@ -624,7 +648,8 @@
         ${row("Month / maturity", `${mon(f.contract_month.value)} / ${dt(f.maturity_date.value)}`)}
         ${row(f.instrument_type.value === "OPTION" ? "Premium" : "Price", f.price.value ? `${esc(f.price.value)} ${c ? esc(c.price_unit) : ""}` : "")}
         ${row("Approx. tonnes", q && c ? `${num(q * c.tonnes_per_unit, 1)} t <span class="muted">(display only)</span>` : "")}
-        ${row("Counterparty", esc(f.counterparty.value))}${row("Portfolio", esc(f.portfolio.value))}</dl>`;
+        ${row("Counterparty", esc(f.counterparty.value))}${row("Portfolio", esc(f.portfolio.value))}
+        ${row("Strategy", f.strategy.value ? esc(strategyName(f.strategy.value)) : "")}</dl>`;
     };
     const sync = (changed) => {
       const c = REF.commodities[f.commodity.value];
@@ -633,6 +658,8 @@
       $("[data-field=option_type]").hidden = !isOpt;
       $("[data-field=strike]").hidden = !isOpt;
       if (!isOpt) { f.option_type.value = ""; f.strike.value = ""; }
+      $("[data-field=delivery_location]").hidden = inst !== "FORWARD";
+      if (inst !== "FORWARD") f.delivery_location.value = "";
       $("label[for=t-price]").innerHTML = (isOpt ? "Premium" : "Price") + ' <span class="req" aria-hidden="true">*</span>';
       if (changed === "commodity") {
         const cur = f.contract_month.value;
@@ -658,7 +685,8 @@
     const collect = () => {
       const data = {};
       ["counterparty", "portfolio", "commodity", "instrument_type", "direction", "option_type", "strike", "pricing_type", "reference_market",
-        "quantity", "price", "contract_month", "trade_date", "effective_date", "maturity_date", "broker", "execution_ref", "source", "notes"]
+        "quantity", "price", "contract_month", "trade_date", "effective_date", "maturity_date", "broker", "execution_ref", "source", "notes",
+        "strategy", "delivery_location"]
         .forEach((n) => { data[n] = f[n].value; });
       return data;
     };
@@ -785,7 +813,7 @@
   async function viewRisk() {
     main.innerHTML = loading();
     const r = await api("/risk");
-    const keyLabel = (k) => riskDim === "commodity" ? commodityName(k) : k;
+    const keyLabel = (k) => dimLabel(riskDim, k);
     const aggs = Object.values(r.aggregates[riskDim]);
     main.innerHTML = `<div class="page-head"><div><h1>Exposure &amp; risk</h1><p>Firm-wide · valued ${ts(r.valued_at)} ${DET} ${DEMO}</p></div></div>
       ${SCOPE ? `<div class="alert alert-info">Exposure and limits are shown firm-wide; the portfolio selector does not filter this page. Use the <em>Portfolio</em> dimension below.</div>` : ""}
@@ -837,7 +865,7 @@
   }
 
   async function showDerivation(dim, key) {
-    openDrawer(`Derivation — ${label(dim)}: ${dim === "commodity" ? commodityName(key) : key}`, loading());
+    openDrawer(`Derivation — ${label(dim)}: ${dimLabel(dim, key)}`, loading());
     try {
       const d = await api(`/risk/derivation?dim=${encodeURIComponent(dim)}&key=${encodeURIComponent(key)}`);
       const a = d.aggregate;
@@ -939,8 +967,8 @@
       mountGrid($("#audit-out"), "audit", [
         { key: "timestamp", label: "Timestamp", cls: () => "nowrap", render: (e) => ts(e.timestamp) },
         { key: "actor", label: "Actor" },
-        { key: "action", label: "Action", render: (e) => esc(label(e.action)) },
-        { key: "entity_id", label: "Entity", render: (e) => (e.entity_type === "trade" ? tradeLink(e.entity_id) : `<span class="mono">${esc(e.entity_id)}</span>`) },
+        { key: "action", label: "Action", render: (e) => esc(EVENT[e.action] || label(e.action)) },
+        { key: "entity_id", label: "Entity", render: (e) => entityCell(e.entity_type, e.entity_id) },
         { key: "reason", label: "Reason", nosort: true, cls: () => "wrap" },
         { key: "changes", label: "Changes", nosort: true, render: (e) => (Object.keys(e.changes || {}).length ? `<details><summary>${Object.keys(e.changes).length} field(s)</summary>${diffTable(e.changes)}</details>` : '<span class="muted">—</span>') },
       ], ev.filter((e) => !act || e.action === act), { caption: "Audit events", sortKey: "timestamp", sortDir: -1, empty: "No audit events match." });
@@ -1027,6 +1055,237 @@
       [{ text: "Reset", cls: "btn-danger", onClick: async () => { await api("/demo/reset", { method: "POST", body: {} }); dlg.close(); toast("Demo data reset"); refreshChrome(); route(); } }]));
   }
 
+  // ── Data Setup ────────────────────────────────────────────────────────────
+  const dsFilter = { kind: "", q: "", status: "" };
+  const statusTag = (s) => (s === "ACTIVE" ? '<span class="tag tag-ok">Active</span>' : '<span class="tag tag-low">Inactive</span>');
+  const recordFields = (r) => ({ name: r.name, description: r.description, ...r.attrs });
+  const persistNote = () => (REF.persistence.persistent ? "Saved to BigQuery and recorded in the audit trail."
+    : "Kept in memory only — lost when the service restarts. Recorded in the audit trail.");
+  async function refreshRef() { REF = await api("/reference"); }
+  const reloadSetup = async (kind, msg) => { toast(msg); await refreshRef(); refreshChrome(); viewDataSetup(kind); };
+
+  function usageCell(kind, meta, r) {
+    if (kind === "price_source") return '<span class="muted">All valuations</span>';
+    const u = r.usage, parts = [];
+    if (u.trades) {
+      const txt = `${u.trades} trade${u.trades === 1 ? "" : "s"}${u.open_trades !== u.trades ? ` <span class="muted">(${u.open_trades} open)</span>` : ""}`;
+      parts.push(meta.trade_field ? `<a href="#/blotter?${meta.trade_field}=${encodeURIComponent(r.code)}">${txt}</a>` : txt);
+    }
+    if (u.limits.length) parts.push(`<a href="#/risk">${u.limits.length} limit${u.limits.length === 1 ? "" : "s"}</a>`);
+    return parts.join(" · ") || '<span class="muted">Not used</span>';
+  }
+
+  function dsActions(kind, meta, r) {
+    if (!meta.editable) return "";
+    const dis = isRisk() ? "" : 'disabled title="Requires the Risk role — switch the demo identity"';
+    const id = esc(r.code);
+    return `<div class="row-actions">
+      <button class="btn btn-sm" data-ds-edit="${id}" ${dis}>Edit</button>
+      <button class="btn btn-sm" data-ds-toggle="${id}" ${dis}>${r.status === "ACTIVE" ? "Deactivate" : "Activate"}</button>
+      ${meta.deletable && !r.system ? `<button class="btn btn-sm btn-danger" data-ds-delete="${id}" ${dis}>Delete</button>` : ""}</div>`;
+  }
+
+  function dsColumns(kind, meta) {
+    const code = { key: "code", label: "Code", cls: () => "mono" };
+    const name = { key: "name", label: "Name", render: (r) => `<strong>${esc(r.name)}</strong>` };
+    const status = { key: "status", label: "Status", render: (r) => statusTag(r.status) };
+    const used = { key: "usage", label: "Used by", sort: (r) => r.usage.trades + r.usage.limits.length, render: (r) => usageCell(kind, meta, r) };
+    const changed = { key: "updated_at", label: "Last change", render: (r) => (r.updated_at ? `${esc(r.updated_by)}<span class="sub">${ts(r.updated_at)}</span>` : '<span class="muted">—</span>') };
+    const desc = { key: "description", label: "Description", nosort: true, cls: () => "wrap", render: (r) => esc(r.description) || '<span class="muted">—</span>' };
+    const attr = (k, l) => ({ key: k, label: l, sort: (r) => r.attrs[k], render: (r) => esc(r.attrs[k] || "—") });
+    const actions = { key: "actions", label: '<span class="sr-only">Actions</span>', nosort: true, render: (r) => dsActions(kind, meta, r) };
+    switch (kind) {
+      case "commodity": return [
+        { key: "name", label: "Commodity", render: (r) => `<strong>${esc(r.name)}</strong><span class="sub mono">${esc(r.code)}</span>` },
+        attr("category", "Category"),
+        { key: "exchange", label: "Exchange · code", sort: (r) => r.spec.exchange, render: (r) => `${esc(r.spec.exchange)} · <span class="mono">${esc(r.spec.code)}</span>` },
+        { key: "lot", label: "Lot size", num: true, sort: (r) => r.spec.lot_size, render: (r) => `${num(r.spec.lot_size)} <span class="muted">${esc(r.spec.qty_unit)}</span>` },
+        { key: "price_unit", label: "Price unit", sort: (r) => r.spec.price_unit, render: (r) => esc(r.spec.price_unit) },
+        { key: "months", label: "Listed months", nosort: true, render: (r) => r.spec.listed_months.map((m) => MONTHS[m - 1]).join(", ") },
+        status, used, actions];
+      case "strategy": return [code, name, desc, status, used, changed, actions];
+      case "unit": return [code, name,
+        { key: "tonnes", label: "Tonnes per unit", num: true, sort: (r) => r.attrs.tonnes_per_unit, render: (r) => r.attrs.tonnes_per_unit.toLocaleString("en-GB", { maximumFractionDigits: 9 }) },
+        { key: "commodities", label: "Commodities", nosort: true, cls: () => "wrap", render: (r) => r.attrs.commodities.map((c) => esc(commodityName(c))).join(", ") || '<span class="muted">—</span>' },
+        used];
+      case "location": return [code, name, attr("location_type", "Type"), attr("region", "Region"), status, used, changed, actions];
+      case "counterparty": return [name, attr("counterparty_type", "Type"), desc, status, used, changed, actions];
+      case "portfolio": return [name, desc, status, used, changed, actions];
+      case "broker": return [name, attr("broker_type", "Type"), status, used, changed, actions];
+      case "price_source": return [name, desc,
+        { key: "frequency", label: "Frequency", render: (r) => esc(r.attrs.frequency) },
+        { key: "coverage", label: "Coverage", nosort: true, render: (r) => `${r.attrs.commodities.length} commodities` },
+        { key: "stale", label: "Stale after", num: true, render: (r) => `${r.attrs.stale_after_hours} h` },
+        { key: "link", label: '<span class="sr-only">Actions</span>', nosort: true, render: () => '<a class="btn btn-sm" href="#/market-data">View marks</a>' }];
+      default: return [code, name, status];
+    }
+  }
+
+  const DS_NOTES = {
+    commodity: "Contract specifications are simplified demo approximations, not an authoritative contract master. Deactivating a commodity blocks new trades only.",
+    unit: "Adding or changing a unit requires a conversion factor in code (agri/reference.py) covered by tests, because exposure figures depend on it.",
+    price_source: "No market-data provider is connected. Marks are synthetic and regenerated daily.",
+  };
+
+  function showDsErrors(errs, msg) {
+    $$("#ds-form .field").forEach((f) => { f.classList.remove("invalid"); const e = $(".err", f); if (e) e.textContent = ""; });
+    const other = [];
+    Object.entries(errs).forEach(([k, v]) => {
+      const f = $(`#ds-form [data-dsf="${k}"]`);
+      if (f) { f.classList.add("invalid"); $(".err", f).textContent = v; const c = $("input,select,textarea", f); if (c) c.setAttribute("aria-invalid", "true"); }
+      else other.push(v);
+    });
+    $("#dlg-error").innerHTML = msg || other.length ? `<div class="alert alert-error" role="alert">${esc(msg || "")}${other.length ? ` ${other.map(esc).join(" ")}` : ""}</div>` : "";
+    const first = $("#ds-form .field.invalid input, #ds-form .field.invalid select, #ds-form .field.invalid textarea");
+    if (first) first.focus();
+  }
+
+  function dsForm(kind, meta, r) {
+    const isNew = !r;
+    const vals = r ? recordFields(r) : {};
+    const fieldHtml = (fd) => {
+      const ro = !isNew && fd.immutable;
+      const req = fd.required && !ro;
+      const id = `ds-${fd.name}`;
+      const val = vals[fd.name] ?? "";
+      const attrs = `id="${id}" name="${fd.name}" ${req ? 'required aria-required="true"' : ""} ${fd.max ? `maxlength="${fd.max}"` : ""} aria-describedby="${id}-err"`;
+      const ctl = fd.type === "select"
+        ? `<select ${attrs}><option value="">Select…</option>${fd.options.map((o) => `<option ${o === val ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`
+        : fd.type === "textarea" ? `<textarea rows="3" ${attrs}>${esc(val)}</textarea>`
+          : `<input ${attrs} value="${esc(val)}" ${ro ? "readonly" : ""}>`;
+      return `<div class="field" data-dsf="${fd.name}"><label for="${id}">${esc(fd.label)}${req ? ' <span class="req" aria-hidden="true">*</span>' : ""}</label>${ctl}
+        ${ro ? '<span class="hint">Stored on trades — cannot be changed.</span>' : ""}<span class="err" id="${id}-err"></span></div>`;
+    };
+    const codeField = isNew && meta.code_input
+      ? `<div class="field" data-dsf="code"><label for="ds-code">Code <span class="req" aria-hidden="true">*</span></label>
+         <input id="ds-code" name="code" maxlength="30" required aria-required="true" class="mono" aria-describedby="ds-code-hint ds-code-err">
+         <span class="hint" id="ds-code-hint">2–30 capital letters, digits, “_” or “-”. Cannot be changed later.</span><span class="err" id="ds-code-err"></span></div>`
+      : (!isNew && !meta.name_is_code ? `<div class="field"><span class="label">Code</span><span class="mono">${esc(r.code)}</span></div>` : "");
+    const spec = kind === "commodity" && r ? `<div class="alert alert-info">Contract specification (${esc(r.spec.exchange)} ${esc(r.spec.code)}, lot ${num(r.spec.lot_size)} ${esc(r.spec.qty_unit)}, ${esc(r.spec.price_unit)}) is code-managed and not editable here.</div>` : "";
+    const statusField = `<div class="field" data-dsf="status"><label for="ds-status">Status <span class="req" aria-hidden="true">*</span></label>
+      <select id="ds-status" name="status">${["ACTIVE", "INACTIVE"].map((st) => `<option value="${st}" ${(r ? r.status : "ACTIVE") === st ? "selected" : ""}>${label(st)}</option>`).join("")}</select></div>`;
+    const reasonField = `<div class="field" data-dsf="reason"><label for="ds-reason">Reason for change${isNew ? " (optional)" : ' <span class="req" aria-hidden="true">*</span>'}</label>
+      <textarea id="ds-reason" name="reason" rows="2" maxlength="500" ${isNew ? "" : 'required aria-required="true"'}></textarea><span class="err" id="ds-reason-err"></span></div>`;
+    openDialog(isNew ? `Add ${meta.singular}` : `Edit ${meta.singular} — ${r.name}`,
+      `${spec}<form id="ds-form" class="ds-form" novalidate>${codeField}${meta.fields.map(fieldHtml).join("")}${statusField}${reasonField}</form>
+       <p class="muted" style="font-size:12px;margin-bottom:0"><span class="req">*</span> Required. ${persistNote()}</p><div id="dlg-error"></div>`,
+      [{ text: isNew ? `Create ${meta.singular}` : "Save changes", onClick: async () => {
+        const data = {};
+        $$("#ds-form [name]").forEach((el) => { if (!el.readOnly) data[el.name] = el.value.trim(); });
+        if (data.code) data.code = data.code.toUpperCase();
+        const errs = {};
+        $$("#ds-form [required]").forEach((el) => { if (!el.readOnly && !el.value.trim()) errs[el.name] = "This field is required."; });
+        if (!isNew && (data.reason || "").length < 5) errs.reason = "Enter a reason of at least 5 characters.";
+        if (Object.keys(errs).length) { showDsErrors(errs, "Please correct the highlighted fields."); return; }
+        try {
+          if (isNew) await api(`/refdata/${kind}`, { method: "POST", body: data });
+          else await api(`/refdata/${kind}/${encodeURIComponent(r.code)}`, { method: "PUT", body: data });
+          dlg.close();
+          await reloadSetup(kind, isNew ? `${label(meta.singular)} created` : `${r.name} updated`);
+        } catch (e) {
+          if (e.data && e.data.errors) showDsErrors(e.data.errors, e.message);
+          else $("#dlg-error").innerHTML = `<div class="alert alert-error" role="alert">${esc(e.message)}</div>`;
+        }
+      } }]);
+  }
+
+  function dsToggle(kind, meta, r) {
+    const deact = r.status === "ACTIVE";
+    const effect = deact
+      ? `<p>New trades and amendments can no longer select <strong>${esc(r.name)}</strong>.
+         ${r.usage.open_trades ? `${r.usage.open_trades} open trade(s) keep it and will be flagged on the dashboard.` : "No open trades use it."}</p>`
+      : `<p><strong>${esc(r.name)}</strong> becomes available for new trades again.</p>`;
+    reasonDialog({
+      title: `${deact ? "Deactivate" : "Activate"} ${meta.singular}`, confirmText: deact ? "Deactivate" : "Activate",
+      confirmCls: deact ? "btn-danger" : "btn-teal", intro: `${effect}<p class="muted">${persistNote()}</p>`,
+      onConfirm: async (reason) => {
+        await api(`/refdata/${kind}/${encodeURIComponent(r.code)}`, { method: "PUT", body: { ...recordFields(r), status: deact ? "INACTIVE" : "ACTIVE", reason } });
+        await reloadSetup(kind, `${r.name} ${deact ? "deactivated" : "activated"}`);
+      },
+    });
+  }
+
+  function dsDelete(kind, meta, r) {
+    const u = r.usage;
+    if (u.trades || u.limits.length) {
+      const deps = [...u.trade_ids.slice(0, 10).map((id) => `<li>Trade ${tradeLink(id)}</li>`),
+        ...(u.trades > 10 ? [`<li>… and ${u.trades - 10} more trades</li>`] : []),
+        ...u.limits.map((l) => `<li>Limit <a class="mono" href="#/risk">${esc(l)}</a></li>`)];
+      openDialog(`${label(meta.singular)} is in use`, `
+        <div class="alert alert-warn"><strong>${esc(r.name)}</strong> cannot be deleted: deleting it would break the link from the records below.</div>
+        <p style="margin-bottom:4px"><strong>Dependencies</strong></p><ul class="list">${deps.join("")}</ul>
+        <p>Safe alternative: <strong>deactivate</strong> it. Existing trades keep the reference; new trades cannot select it.</p>`,
+        r.status === "ACTIVE" && isRisk() ? [{ text: "Deactivate instead", onClick: () => dsToggle(kind, meta, r) }] : []);
+      return;
+    }
+    reasonDialog({
+      title: `Delete ${meta.singular}?`, confirmText: "Delete", confirmCls: "btn-danger",
+      intro: `<div class="alert alert-error">This removes <strong>${esc(r.name)}</strong> from Data Setup. Nothing references it.
+        The deletion is recorded in the audit trail${REF.persistence.persistent ? "; earlier versions remain in BigQuery" : ""}.</div>`,
+      onConfirm: async (reason) => {
+        await api(`/refdata/${kind}/${encodeURIComponent(r.code)}/delete`, { method: "POST", body: { reason } });
+        await reloadSetup(kind, `${r.name} deleted`);
+      },
+    });
+  }
+
+  async function viewDataSetup(kind) {
+    main.innerHTML = loading();
+    const d = await api("/refdata");
+    const meta = d.kinds.find((k) => k.kind === kind) || d.kinds[0];
+    kind = meta.kind;
+    if (dsFilter.kind !== kind) Object.assign(dsFilter, { kind, q: "", status: "" });
+    $("#crumb-item").textContent = meta.label;
+    const all = d.records[kind];
+    const hasStatus = meta.editable;
+    const persist = d.persistence.persistent
+      ? `Changes are saved to BigQuery (<span class="mono">${esc(d.persistence.dataset)}</span>, table <span class="mono">agri_reference_data</span>) and recorded in the audit trail.`
+      : "Changes are kept <strong>in memory only</strong> and are lost when the service restarts. They are recorded in the audit trail.";
+    main.innerHTML = `
+      <div class="page-head"><div><h1>Data Setup</h1><p>Reference data used by trade capture, validation and reporting ${DEMO}</p></div></div>
+      <div class="alert ${d.persistence.persistent ? "alert-info" : "alert-warn"}">${persist}
+        ${isRisk() ? "" : " You are acting as <strong>Demo Trader</strong>: this area is read-only. Switch the demo identity to Demo Risk Reviewer to make changes."}</div>
+      <div class="setup">
+        <nav class="setup-nav" aria-label="Reference data types"><ul>${d.kinds.map((k) => `<li><a href="#/data-setup/${k.kind}" ${k.kind === kind ? 'aria-current="page"' : ""}>
+          <span>${esc(k.label)}</span><span class="n">${d.records[k.kind].length}</span></a></li>`).join("")}</ul></nav>
+        <section class="panel setup-main" aria-labelledby="h-ds-kind">
+          <div class="panel-head"><div class="ph-text"><h2 id="h-ds-kind">${esc(meta.label)}</h2><p class="panel-about">${esc(meta.about)}</p></div>
+            ${meta.creatable ? `<button class="btn btn-primary btn-sm" id="ds-add" ${isRisk() ? "" : 'disabled title="Requires the Risk role — switch the demo identity"'}>Add ${esc(meta.singular)}</button>`
+              : `<span class="tag tag-low">${meta.editable ? "Existing records only" : "Read-only"}</span>`}</div>
+          <div class="filters">
+            <div class="field" style="flex:1 1 220px"><label for="ds-q">Search</label><input id="ds-q" type="search" value="${esc(dsFilter.q)}" placeholder="Code, name, description…"></div>
+            ${hasStatus ? `<div class="field"><label for="ds-st">Status</label><select id="ds-st"><option value="">All</option>
+              <option value="ACTIVE" ${dsFilter.status === "ACTIVE" ? "selected" : ""}>Active</option><option value="INACTIVE" ${dsFilter.status === "INACTIVE" ? "selected" : ""}>Inactive</option></select></div>` : ""}
+            <span class="muted" id="ds-count" style="align-self:center" aria-live="polite"></span></div>
+          <div id="ds-grid"></div>
+          <div class="panel-note">${esc(DS_NOTES[kind] || "Records in use cannot be deleted — deactivate them instead. Inactive records stay on existing trades but cannot be chosen for new ones.")}</div>
+        </section></div>`;
+    const render = () => {
+      const q = dsFilter.q.toLowerCase();
+      const shown = all.filter((r) => (!dsFilter.status || r.status === dsFilter.status)
+        && (!q || `${r.code} ${r.name} ${r.description} ${Object.values(r.attrs).join(" ")}`.toLowerCase().includes(q)));
+      $("#ds-count").textContent = `${shown.length} of ${all.length}`;
+      mountGrid($("#ds-grid"), "ds-" + kind, dsColumns(kind, meta), shown, {
+        caption: meta.label,
+        emptyHtml: all.length ? empty("No records match these filters.")
+          : empty(`No ${meta.label.toLowerCase()} yet.${meta.creatable ? ` Use “Add ${meta.singular}” to create the first one.` : ""}`),
+      });
+    };
+    render();
+    $("#ds-q").addEventListener("input", (e) => { dsFilter.q = e.target.value; render(); });
+    if ($("#ds-st")) $("#ds-st").addEventListener("change", (e) => { dsFilter.status = e.target.value; render(); });
+    if ($("#ds-add")) $("#ds-add").addEventListener("click", () => dsForm(kind, meta, null));
+    $("#ds-grid").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-ds-edit],[data-ds-toggle],[data-ds-delete]");
+      if (!b || b.disabled) return;
+      const code = b.dataset.dsEdit ?? b.dataset.dsToggle ?? b.dataset.dsDelete;
+      const r = all.find((x) => x.code === code);
+      if (b.dataset.dsEdit !== undefined) dsForm(kind, meta, r);
+      else if (b.dataset.dsToggle !== undefined) dsToggle(kind, meta, r);
+      else dsDelete(kind, meta, r);
+    });
+  }
+
   // ── Delegated actions ─────────────────────────────────────────────────────
   document.addEventListener("click", (e) => {
     const sort = e.target.closest("[data-tsort]");
@@ -1053,6 +1312,7 @@
   const ROUTES = {
     dashboard: viewDashboard, blotter: viewBlotter, trade: viewTrade, capture: viewCapture, monitoring: viewMonitoring,
     risk: viewRisk, exceptions: viewExceptions, audit: (arg, params) => viewAudit(params), "market-data": viewMarketData, system: viewSystem,
+    "data-setup": viewDataSetup,
   };
   async function route() {
     const hash = location.hash.replace(/^#\/?/, "") || "dashboard";

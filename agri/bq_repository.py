@@ -36,7 +36,7 @@ SCHEMAS = {
                     ("currency", S), ("price_unit", S), ("trade_date", S), ("effective_date", S),
                     ("maturity_date", S), ("broker", S), ("execution_ref", S), ("source", S), ("notes", S),
                     ("created_by", S), ("created_at", S), ("updated_by", S), ("updated_at", S),
-                    ("reviewed_by", S), ("reviewed_at", S)],
+                    ("reviewed_by", S), ("reviewed_at", S), ("strategy", S), ("delivery_location", S)],
     "agri_limits": [("generation", I), ("saved_at", T), ("id", S), ("dimension", S), ("key", S), ("metric", S),
                     ("limit_value", F), ("unit", S), ("warn_pct", F), ("owner", S), ("updated_by", S),
                     ("updated_at", S)],
@@ -47,6 +47,9 @@ SCHEMAS = {
     "agri_audit_events": [("generation", I), ("id", S), ("timestamp", T), ("actor", S), ("action", S),
                           ("entity_type", S), ("entity_id", S), ("reason", S), ("changes_json", S),
                           ("before_json", S), ("after_json", S)],
+    "agri_reference_data": [("generation", I), ("saved_at", T), ("kind", S), ("code", S), ("name", S),
+                            ("status", S), ("description", S), ("attrs_json", S), ("system", B), ("deleted", B),
+                            ("updated_by", S), ("updated_at", S)],
     "agri_market_prices": [("generation", I), ("snapshot_id", S), ("published_at", T), ("commodity", S),
                            ("contract_month", S), ("price", F), ("price_unit", S), ("as_of", S), ("source", S)],
 }
@@ -57,6 +60,8 @@ DESCRIPTIONS = {
     "agri_confirmations": "AgriRisk prototype: simulated broker confirmations. SYNTHETIC DEMO DATA.",
     "agri_exception_actions": "AgriRisk prototype: acknowledgements and overrides. SYNTHETIC DEMO DATA.",
     "agri_audit_events": "AgriRisk prototype: append-only audit trail. SYNTHETIC DEMO DATA.",
+    "agri_reference_data": "AgriRisk prototype: Data Setup reference data, append-only; latest row per "
+                           "(kind, code) is current, deleted=true removes it. SYNTHETIC DEMO DATA.",
     "agri_market_prices": "AgriRisk prototype: synthetic market-mark snapshots (not from a market-data provider).",
 }
 
@@ -83,7 +88,13 @@ class BigQueryStore:
             table = bigquery.Table(f"{self.dataset}.{name}",
                                    schema=[bigquery.SchemaField(c, t) for c, t in SCHEMAS[name]])
             table.description = DESCRIPTIONS[name]
-            self.client.create_table(table, exists_ok=True)
+            current = self.client.create_table(table, exists_ok=True)
+            have = {f.name for f in current.schema}
+            missing = [f for f in table.schema if f.name not in have]
+            if missing:   # additive schema change (new NULLABLE columns) for existing tables
+                current.schema = list(current.schema) + missing
+                self.client.update_table(current, ["schema"])
+                logger.info("Added columns %s to %s", [f.name for f in missing], name)
         with ThreadPoolExecutor(max_workers=len(SCHEMAS)) as ex:
             list(ex.map(ensure, SCHEMAS))
 
@@ -148,13 +159,27 @@ class BigQueryRepository(InMemoryRepository):
             actions.setdefault(a["exception_id"], []).append({k: v for k, v in a.items() if k != "generation"})
         audit = sorted((self._audit_from_row(r) for r in cur(data["agri_audit_events"])),
                        key=lambda e: e["timestamp"])
+        reference = {}
+        for r in sorted(cur(data["agri_reference_data"]), key=lambda r: _ts(r["saved_at"])):
+            rec = self._ref_from_row(r)
+            if rec.pop("deleted"):
+                reference.pop((rec["kind"], rec["code"]), None)
+            else:
+                reference[(rec["kind"], rec["code"])] = rec
         with self._lock:
             self.generation = gen
             self._trades, self._limits = trades, limits
             self._confirmations, self._actions, self._audit = confirmations, actions, audit
+            self._reference = reference
             self._seq = max([int(t.split("-")[-1]) for t in trades if t.split("-")[-1].isdigit()] or [0])
             self.seeded_at = min((datetime.fromisoformat(_ts(m["at"])) for m in meta
                                   if int(m["generation"]) == gen), default=now)
+        if not reference:   # data set created before Data Setup existed: add the seed records once
+            from agri import refdata
+            seed = refdata.default_records(now.replace(microsecond=0).isoformat())
+            self.store.append("agri_reference_data", [self._ref_to_row(r, gen) for r in seed])
+            with self._lock:
+                self._reference = {(r["kind"], r["code"]): r for r in seed}
         self._load_prices(now, data["agri_market_prices"])
         logger.info("Loaded AgriRisk generation %s from BigQuery: %s trades, %s audit events",
                     gen, len(trades), len(audit))
@@ -184,6 +209,21 @@ class BigQueryRepository(InMemoryRepository):
         self._prices_date = now.date()
 
     @staticmethod
+    def _ref_to_row(r: dict, gen: int) -> dict:
+        return {"generation": gen, "saved_at": _now(), "kind": r["kind"], "code": r["code"], "name": r["name"],
+                "status": r["status"], "description": r.get("description", ""),
+                "attrs_json": json.dumps(r.get("attrs") or {}), "system": bool(r.get("system")),
+                "deleted": bool(r.get("deleted")), "updated_by": r.get("updated_by", ""),
+                "updated_at": r.get("updated_at", "")}
+
+    @staticmethod
+    def _ref_from_row(r: dict) -> dict:
+        return {"kind": r["kind"], "code": r["code"], "name": r["name"], "status": r["status"],
+                "description": r["description"] or "", "attrs": json.loads(r["attrs_json"] or "{}"),
+                "system": bool(r["system"]), "deleted": bool(r["deleted"]),
+                "updated_by": r["updated_by"] or "", "updated_at": r["updated_at"] or ""}
+
+    @staticmethod
     def _audit_from_row(r: dict) -> dict:
         load = lambda v: json.loads(v) if v else None   # noqa: E731
         return {"id": r["id"], "timestamp": _ts(r["timestamp"]), "actor": r["actor"], "action": r["action"],
@@ -208,6 +248,7 @@ class BigQueryRepository(InMemoryRepository):
         st.append("agri_limits", [{**l, "generation": generation, "saved_at": stamp} for l in data["limits"]])
         st.append("agri_confirmations", [{**c, "generation": generation} for c in data["confirmations"]])
         st.append("agri_audit_events", [self._audit_to_row(e, generation) for e in data["audit"]])
+        st.append("agri_reference_data", [self._ref_to_row(r, generation) for r in data["reference"]])
         # Meta last: a generation only becomes current once its data is written.
         st.append("agri_meta", [{"generation": generation, "event": "SEED", "at": stamp, "actor": actor,
                                  "note": note}])
@@ -218,6 +259,7 @@ class BigQueryRepository(InMemoryRepository):
             self._confirmations = {c["execution_ref"]: c for c in data["confirmations"]}
             self._actions = {}
             self._audit = sorted(data["audit"], key=lambda e: e["timestamp"])
+            self._reference = {(r["kind"], r["code"]): r for r in data["reference"]}
             self._seq = len(self._trades)
             self.seeded_at = now
         self._publish_prices(now)
@@ -254,6 +296,11 @@ class BigQueryRepository(InMemoryRepository):
         with self._lock:
             self.store.append("agri_audit_events", [self._audit_to_row(event, self.generation)])
             super().append_audit(event)
+
+    def save_reference(self, record):
+        with self._lock:
+            self.store.append("agri_reference_data", [self._ref_to_row(record, self.generation)])
+            super().save_reference(record)
 
     def describe(self) -> dict:
         return {"store": "bigquery", "persistent": True, "dataset": self.store.dataset,

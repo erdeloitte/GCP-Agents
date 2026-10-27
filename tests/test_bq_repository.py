@@ -103,3 +103,22 @@ def _capture_form(s):
             "commodity": "CBOT_CORN", "instrument_type": "FUTURE", "direction": "BUY", "quantity": "5000",
             "contract_month": mark["contract_month"], "price": mark["price"], "trade_date": s.clock().date().isoformat(),
             "maturity_date": f"{y}-{m}-14", "broker": "Demo Broker Alpha"}
+
+
+def test_reference_changes_survive_restart(store, now):
+    a = svc(store, now)
+    a.create_reference("strategy", {"code": "BASIS_HEDGE", "name": "Basis hedge", "description": "Demo."},
+                       "demo.risk-reviewer")
+    a.delete_reference("location", "DEMO_PORT_NS", "demo.risk-reviewer", "Never used")
+    b = svc(store, now)
+    codes = {(r["kind"], r["code"]) for r in b.repo.list_reference()}
+    assert ("strategy", "BASIS_HEDGE") in codes and ("location", "DEMO_PORT_NS") not in codes
+
+
+def test_existing_data_set_gets_reference_seed_once(store, now):
+    svc(store, now)
+    store.tables["agri_reference_data"].clear()        # simulate a data set created before Data Setup
+    b = svc(store, now)
+    assert b.repo.list_reference() and len(store.tables["agri_reference_data"]) == len(b.repo.list_reference())
+    svc(store, now)
+    assert len(store.tables["agri_reference_data"]) == len(b.repo.list_reference())   # not seeded twice

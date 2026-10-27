@@ -150,3 +150,29 @@ def test_ai_status_has_no_secrets(client, monkeypatch):
     r = client.get("/api/agri/ai/status")
     assert "FAKE" not in r.get_data(as_text=True)
     assert r.get_json()["configured"] is True and r.get_json()["provider"] == "claude"
+
+
+def test_refdata_endpoints(client):
+    d = client.get("/api/agri/refdata").get_json()
+    assert [k["kind"] for k in d["kinds"]][:2] == ["commodity", "strategy"] and d["records"]["unit"]
+    body = {"code": "BASIS_HEDGE", "name": "Basis hedge", "description": "Demo."}
+    assert client.post("/api/agri/refdata/strategy", json=body).status_code == 403          # trader
+    assert client.post("/api/agri/refdata/strategy", json=body, headers=RISK).status_code == 201
+    r = client.put("/api/agri/refdata/strategy/BASIS_HEDGE", json={**body, "status": "INACTIVE"}, headers=RISK)
+    assert r.status_code == 400                                                             # reason missing
+    r = client.put("/api/agri/refdata/strategy/BASIS_HEDGE", json={**body, "status": "INACTIVE", "reason": "Unused"},
+                   headers=RISK)
+    assert r.get_json()["record"]["status"] == "INACTIVE"
+    ref = client.get("/api/agri/reference").get_json()
+    assert any(s["code"] == "BASIS_HEDGE" and s["status"] == "INACTIVE" for s in ref["strategies"])
+    r = client.post("/api/agri/refdata/counterparty/Demo Clearing Member A/delete", json={"reason": "Tidy up"},
+                    headers=RISK)
+    assert r.status_code == 409 and r.get_json()["errors"]["dependencies"]
+    assert client.post("/api/agri/refdata/strategy/BASIS_HEDGE/delete", json={"reason": "Tidy up"},
+                       headers=RISK).status_code == 200
+
+
+def test_blotter_strategy_filters(client):
+    rows = client.get("/api/agri/trades?strategy=UNASSIGNED").get_json()
+    assert [t["id"] for t in rows] == ["AGD-0012"]
+    assert all(t["strategy"] == "SOFTS_DIR" for t in client.get("/api/agri/trades?strategy=SOFTS_DIR").get_json())
