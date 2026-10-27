@@ -172,9 +172,21 @@ def _serialise(rows: list[dict]) -> list[dict]:
 
 # ── Core routes ───────────────────────────────────────────────────────────────
 
+def _asset_version() -> str:
+    """Cache-busting token for /static assets: the Cloud Run revision, else file mtimes."""
+    rev = os.getenv("K_REVISION")
+    if rev:
+        return rev
+    static = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+    try:
+        return str(int(max(os.path.getmtime(os.path.join(static, f)) for f in ("agri.css", "agri.js"))))
+    except OSError:
+        return "dev"
+
+
 @app.route("/", methods=["GET"])
 def index():
-    return render_template("agri.html")
+    return render_template("agri.html", asset_version=_asset_version())
 
 
 @app.route("/counterparty-analytics", methods=["GET"])

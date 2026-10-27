@@ -6,7 +6,7 @@
   <title>AgriRisk CTRM — Prototype</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/agri.css" />
+  <link rel="stylesheet" href="/static/agri.css?v={{ asset_version }}" />
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -41,7 +41,6 @@
   <div class="workspace">
     <header class="topbar">
       <button class="nav-toggle" id="nav-toggle" aria-controls="sidenav" aria-expanded="false">Menu</button>
-      <div class="crumbs" aria-live="polite"><span id="crumb-section">Dashboard</span><span id="crumb-item"></span></div>
       <div class="ctx">
         <div class="ctx-item">
           <label for="scope">Portfolio</label>
@@ -77,6 +76,6 @@
 </dialog>
 <div class="toasts" id="toasts" aria-live="polite" aria-atomic="false"></div>
 
-<script src="/static/agri.js"></script>
+<script src="/static/agri.js?v={{ asset_version }}"></script>
 </body>
 </html>

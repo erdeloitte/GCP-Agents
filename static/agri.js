@@ -37,6 +37,8 @@
     return d.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit",
       minute: "2-digit", timeZone: "UTC" }) + " UTC";
   };
+  /** Table timestamp: "25 Oct 2026 20:30" in UTC (the column header says UTC). */
+  const dtm = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? "—" : `${dt(d.toISOString().slice(0, 10))} ${d.toISOString().slice(11, 16)}`; };
   const hhmm = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? "—" : d.toISOString().slice(11, 16) + " UTC"; };
   const commodityName = (k) => (REF && REF.commodities[k] ? REF.commodities[k].name : k);
   const strategyName = (c) => { if (!c || c === "Unassigned") return "Unassigned"; const s = REF && REF.strategies.find((x) => x.code === c); return s ? s.name : c; };
@@ -110,15 +112,18 @@
       data.sort((a, b) => { const x = f(a), y = f(b); const n = x == null || x === "" || y == null || y === "" ? cmp(x, y) : cmp(x, y) * st.dir; return n; });
     }
     if (!data.length) return o.emptyHtml || empty(o.empty || "No records.");
+    // Optional column metadata: w (preferred width), unit (shown in the header), title(row) (cell tooltip)
+    const head = (c) => `${c.label}${c.unit ? ` <span class="unit">(${c.unit})</span>` : ""}`;
     const th = (c) => {
       const cls = c.num ? "num" : "";
-      if (c.nosort) return `<th scope="col" class="${cls}">${c.label}</th>`;
+      if (c.nosort) return `<th scope="col" class="${cls}">${head(c)}</th>`;
       const on = st.key === c.key;
-      return `<th scope="col" class="${cls}" aria-sort="${on ? (st.dir > 0 ? "ascending" : "descending") : "none"}"><button class="sort" data-tsort="${id}|${c.key}">${c.label}<span class="ind" aria-hidden="true">${on ? (st.dir > 0 ? "▲" : "▼") : "↕"}</span></button></th>`;
+      return `<th scope="col" class="${cls}" aria-sort="${on ? (st.dir > 0 ? "ascending" : "descending") : "none"}"><button class="sort" data-tsort="${id}|${c.key}">${head(c)}<span class="ind" aria-hidden="true">${on ? (st.dir > 0 ? "▲" : "▼") : "↕"}</span></button></th>`;
     };
-    const td = (c, r) => `<td class="${c.num ? "num" : ""} ${c.cls ? c.cls(r) : ""}">${c.render ? c.render(r) : esc(r[c.key])}</td>`;
-    return `<div class="table-wrap"><table><caption class="sr-only">${esc(o.caption || "")}</caption>
-      <thead><tr>${cols.map(th).join("")}</tr></thead>
+    const td = (c, r) => `<td class="${c.num ? "num" : ""} ${c.cls ? c.cls(r) : ""}"${c.title ? ` title="${esc(c.title(r))}"` : ""}>${c.render ? c.render(r) : esc(r[c.key])}</td>`;
+    const colgroup = cols.some((c) => c.w) ? `<colgroup>${cols.map((c) => `<col${c.w ? ` style="width:${c.w}"` : ""}>`).join("")}</colgroup>` : "";
+    return `<div class="table-wrap"><table${o.minWidth ? ` style="min-width:${o.minWidth}px"` : ""}${o.cls ? ` class="${o.cls}"` : ""}><caption class="sr-only">${esc(o.caption || "")}</caption>
+      ${colgroup}<thead><tr>${cols.map(th).join("")}</tr></thead>
       <tbody>${data.map((r) => `<tr${o.href ? ` class="clickable" data-href="${esc(o.href(r))}"` : ""}>${cols.map((c) => td(c, r)).join("")}</tr>`).join("")}</tbody>
       ${o.foot ? `<tfoot>${o.foot}</tfoot>` : ""}</table></div>`;
   }
@@ -370,29 +375,35 @@
         <section class="panel core" aria-labelledby="h-str"><div class="panel-head"><h2 id="h-str">Exposure by strategy</h2><a class="btn btn-sm" href="#/data-setup/strategy">Strategies</a></div><div id="str-grid"></div></section>
       </div>`;
 
+    // Totals rows show the server's own scoped totals (kpis); nothing is summed in the browser.
     mountGrid($("#act-grid"), "dash-act", [
-      { key: "timestamp", label: "Time", cls: () => "nowrap", render: (e) => ts(e.timestamp) },
-      { key: "action", label: "Event", render: (e) => esc(EVENT[e.action] || label(e.action)) },
-      { key: "entity_id", label: "Record", render: (e) => entityCell(e.entity_type, e.entity_id) },
-      { key: "summary", label: "Detail", nosort: true, cls: () => "wrap", render: (e) => (e.summary ? `${tradeSummary(e.summary)} ${tradeTag(e.summary.status)}` : `<span class="muted">${esc(e.reason)}</span>`) },
-      { key: "actor", label: "By" },
-    ], d.recent_activity, { caption: "Recent activity", sortKey: "timestamp", sortDir: -1, empty: "No activity yet." });
+      { key: "timestamp", label: "Time", unit: "UTC", w: "136px", cls: () => "nowrap num-text", render: (e) => dtm(e.timestamp) },
+      { key: "action", label: "Event", w: "190px", cls: () => "nowrap", render: (e) => esc(EVENT[e.action] || label(e.action)) },
+      { key: "entity_id", label: "Record", w: "150px", cls: () => "nowrap", render: (e) => entityCell(e.entity_type, e.entity_id) },
+      { key: "summary", label: "Detail", nosort: true, cls: () => "wrap",
+        render: (e) => (e.summary ? tradeSummary(e.summary) : `<span class="muted">${esc(e.reason)}</span>`) },
+      { key: "status", label: "Status", w: "140px", sort: (e) => (e.summary ? e.summary.status : ""), cls: () => "nowrap", render: (e) => (e.summary ? tradeTag(e.summary.status) : '<span class="muted">—</span>') },
+      { key: "actor", label: "By", w: "150px", cls: () => "nowrap muted" },
+    ], d.recent_activity, { caption: "Recent activity", sortKey: "timestamp", sortDir: -1, minWidth: 860, empty: "No activity yet." });
 
     mountGrid($("#pos-grid"), "dash-pos", [
-      { key: "commodity", label: "Commodity", sort: (r) => commodityName(r.commodity), render: (r) => `<button class="btn-link" data-derive="commodity|${esc(r.commodity)}">${esc(commodityName(r.commodity))}</button>` },
-      { key: "net_t", label: "Net t", num: true, render: (r) => tonnes(r.net_t) },
-      { key: "mtm_usd", label: "MtM USD", num: true, cls: (r) => signCls(r.mtm_usd), render: (r) => usd(r.mtm_usd) },
-      { key: "valued", label: "Valued", num: true, sort: (r) => r.valued / r.trades, render: (r) => `<span class="${r.data_complete ? "" : "warn-text"}">${r.valued}/${r.trades}</span>` },
-      { key: "limit", label: "Limit", sort: (r) => (commodityLimit(r.commodity) || {}).utilisation ?? null, render: (r) => { const l = commodityLimit(r.commodity); return l ? `${limTag(l.status)} <span class="muted">${pct(l.utilisation)}</span>` : '<span class="muted">—</span>'; } },
-    ], d.positions, { caption: "Exposure by commodity", sortKey: "net_t", sortDir: -1, empty: "No open positions in this scope." });
+      { key: "commodity", label: "Commodity", sort: (r) => commodityName(r.commodity),
+        render: (r) => `<button class="btn-link" data-derive="commodity|${esc(r.commodity)}">${esc(commodityName(r.commodity))}</button><span class="sub">${esc(REF.commodities[r.commodity].exchange)} · ${esc(REF.commodities[r.commodity].code)}</span>` },
+      { key: "net_t", label: "Net", unit: "t", num: true, w: "96px", render: (r) => tonnes(r.net_t) },
+      { key: "mtm_usd", label: "MtM", unit: "USD", num: true, w: "112px", cls: (r) => signCls(r.mtm_usd), render: (r) => usd(r.mtm_usd) },
+      { key: "valued", label: "Valued", num: true, w: "76px", sort: (r) => r.valued / r.trades, render: (r) => `<span class="${r.data_complete ? "" : "warn-text"}" title="${r.valued} of ${r.trades} trades have a usable mark">${r.valued} / ${r.trades}</span>` },
+      { key: "limit", label: "Limit", w: "132px", cls: () => "nowrap", sort: (r) => (commodityLimit(r.commodity) || {}).utilisation ?? null, render: (r) => { const l = commodityLimit(r.commodity); return l ? `${limTag(l.status)} <span class="util-pct">${pct(l.utilisation)}</span>` : '<span class="muted">—</span>'; } },
+    ], d.positions, { caption: "Exposure by commodity", sortKey: "net_t", sortDir: -1, minWidth: 520, empty: "No open positions in this scope.",
+      foot: d.positions.length ? `<tr><th scope="row">Total</th><td class="num muted" title="Net tonnes are not summed across different commodities">—</td><td class="num ${signCls(k.mtm_usd)}">${usd(k.mtm_usd)}</td><td class="num">${k.mtm_included} / ${k.open_trades}</td><td></td></tr>` : "" });
 
     mountGrid($("#str-grid"), "dash-str", [
-      { key: "name", label: "Strategy", render: (a) => `<button class="btn-link" data-derive="strategy|${esc(a.key)}">${esc(a.name)}</button>` },
-      { key: "trades", label: "Trades", num: true, sort: (a) => a.trade_ids.length, render: (a) => a.trade_ids.length },
-      { key: "gross_notional_usd", label: "Notional USD", num: true, render: (a) => usd(a.gross_notional_usd) },
-      { key: "mtm_usd", label: "MtM USD", num: true, cls: (a) => signCls(a.mtm_usd), render: (a) => usd(a.mtm_usd) },
-      { key: "data", label: "Data", sort: (a) => a.incomplete.length, render: (a) => (a.data_complete ? '<span class="tag tag-ok">Complete</span>' : `<span class="tag tag-warn">${a.incomplete.length} excl.</span>`) },
-    ], d.by_strategy, { caption: "Exposure by strategy", sortKey: "gross_notional_usd", sortDir: -1, empty: "No open positions in this scope." });
+      { key: "name", label: "Strategy", render: (a) => `<button class="btn-link" data-derive="strategy|${esc(a.key)}">${esc(a.name)}</button>${a.key === "Unassigned" ? "" : `<span class="sub mono">${esc(a.key)}</span>`}` },
+      { key: "trades", label: "Trades", num: true, w: "72px", sort: (a) => a.trade_ids.length, render: (a) => a.trade_ids.length },
+      { key: "gross_notional_usd", label: "Notional", unit: "USD", num: true, w: "128px", render: (a) => usd(a.gross_notional_usd) },
+      { key: "mtm_usd", label: "MtM", unit: "USD", num: true, w: "112px", cls: (a) => signCls(a.mtm_usd), render: (a) => usd(a.mtm_usd) },
+      { key: "data", label: "Data", w: "112px", cls: () => "nowrap", sort: (a) => a.incomplete.length, render: (a) => (a.data_complete ? '<span class="tag tag-ok">Complete</span>' : `<span class="tag tag-warn" title="${a.incomplete.length} trade(s) without a usable mark are excluded from notional and MtM">${a.incomplete.length} excluded</span>`) },
+    ], d.by_strategy, { caption: "Exposure by strategy", sortKey: "gross_notional_usd", sortDir: -1, minWidth: 520, empty: "No open positions in this scope.",
+      foot: d.by_strategy.length ? `<tr><th scope="row">Total</th><td class="num">${k.open_trades}</td><td class="num">${usd(k.gross_notional_usd)}</td><td class="num ${signCls(k.mtm_usd)}">${usd(k.mtm_usd)}</td><td></td></tr>` : "" });
   }
 
   // ── Blotter ───────────────────────────────────────────────────────────────
@@ -466,7 +477,6 @@
     main.innerHTML = loading();
     const d = await api("/trades/" + encodeURIComponent(id));
     const t = d.trade, v = d.valuation;
-    $("#crumb-item").textContent = t.id;
     const spec = REF.commodities[t.commodity];
     const canReview = t.status === "PENDING_REVIEW";
     const kv = (k, val) => `<div><dt>${k}</dt><dd>${val}</dd></div>`;
@@ -574,7 +584,6 @@
     let t = null;
     if (editing) {
       t = (await api("/trades/" + encodeURIComponent(id))).trade;
-      $("#crumb-item").textContent = t.id;
       if (t.status === "CANCELLED") { main.innerHTML = `<div class="alert alert-warn">Cancelled trades cannot be amended. <a href="#/trade/${encodeURIComponent(id)}">Back to trade</a></div>`; return; }
     }
     const today = new Date().toISOString().slice(0, 10);
@@ -1235,7 +1244,6 @@
     const meta = d.kinds.find((k) => k.kind === kind) || d.kinds[0];
     kind = meta.kind;
     if (dsFilter.kind !== kind) Object.assign(dsFilter, { kind, q: "", status: "" });
-    $("#crumb-item").textContent = meta.label;
     const all = d.records[kind];
     const hasStatus = meta.editable;
     const persist = d.persistence.persistent
@@ -1323,8 +1331,6 @@
     $$(".sidenav a").forEach((a) => {
       if (a.dataset.route === navName) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
     });
-    $("#crumb-section").textContent = SECTIONS[name];
-    $("#crumb-item").textContent = "";
     document.title = `${SECTIONS[name]} · AgriRisk CTRM — Prototype`;
     $("#sidenav").classList.remove("open");
     $("#nav-toggle").setAttribute("aria-expanded", "false");
